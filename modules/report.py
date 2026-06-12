@@ -1,0 +1,142 @@
+"""Generador de reportes PDF para BioNexus AI."""
+
+from __future__ import annotations
+
+from io import BytesIO
+from typing import Dict, Iterable, List
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+
+def _paragraph_list(items: Iterable[str], style: ParagraphStyle) -> List[Paragraph]:
+    return [Paragraph(f"- {item}", style) for item in items]
+
+
+def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
+    """Construye un PDF descargable en memoria."""
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=0.65 * inch,
+        leftMargin=0.65 * inch,
+        topMargin=0.6 * inch,
+        bottomMargin=0.6 * inch,
+    )
+
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle(
+        "BioNexusTitle",
+        parent=styles["Title"],
+        textColor=colors.HexColor("#0F766E"),
+        fontSize=22,
+        leading=26,
+        spaceAfter=12,
+    )
+    heading = ParagraphStyle(
+        "BioNexusHeading",
+        parent=styles["Heading2"],
+        textColor=colors.HexColor("#155E75"),
+        fontSize=13,
+        leading=16,
+        spaceBefore=12,
+        spaceAfter=6,
+    )
+    body = ParagraphStyle("BioNexusBody", parent=styles["BodyText"], fontSize=9.5, leading=12)
+    small = ParagraphStyle("BioNexusSmall", parent=styles["BodyText"], fontSize=8, leading=10)
+
+    summary = analysis["summary"]
+    story: List[object] = [
+        Paragraph("BioNexus AI - Reporte academico multi-omico", title),
+        Paragraph("Uso educativo e investigativo. No constituye diagnostico medico.", body),
+        Spacer(1, 8),
+        Paragraph("Resumen del caso", heading),
+        Paragraph(
+            f"Paciente/muestra simulada de {summary.get('age', 'N/D')} anos, sexo {summary.get('sex', 'N/D')}. "
+            f"Diagnostico presuntivo: {summary.get('presumptive_diagnosis', 'N/D')}. "
+            f"Clasificacion molecular simulada: {summary.get('molecular_class')}. "
+            f"Riesgo academico simulado: {summary.get('risk')}. Confianza: {summary.get('confidence')}.",
+            body,
+        ),
+        Paragraph("Datos ingresados", heading),
+    ]
+
+    input_rows = [
+        ["Campo", "Contenido"],
+        ["Sintomas", ", ".join(case.get("symptoms", [])) or "N/D"],
+        ["Genes alterados", ", ".join(case.get("genomic", [])) or "N/D"],
+        ["Genes transcriptomicos", ", ".join(case.get("transcriptomic", [])) or "N/D"],
+        ["Proteinas alteradas", ", ".join(case.get("proteomic", [])) or "N/D"],
+        ["Metabolitos alterados", ", ".join(case.get("metabolomic", [])) or "N/D"],
+        ["Laboratorio", ", ".join(case.get("lab_results", [])) or "N/D"],
+    ]
+    story.append(_styled_table(input_rows))
+
+    story.append(Paragraph("Biomarcadores candidatos", heading))
+    candidate_rows = [["Tipo", "Biomarcador", "Categoria", "Ruta asociada"]]
+    for row in analysis["candidates"][:12]:
+        candidate_rows.append(
+            [
+                row["Tipo de dato"],
+                row["Biomarcador candidato"],
+                row["Categoria"],
+                row["Ruta asociada"],
+            ]
+        )
+    story.append(_styled_table(candidate_rows, font_size=7))
+
+    story.append(Paragraph("Rutas posiblemente alteradas", heading))
+    if analysis["altered_pathways"]:
+        pathway_rows = [["Categoria", "Ruta o proceso", "Evidencia"]]
+        for row in analysis["altered_pathways"]:
+            pathway_rows.append([row["Categoria"], row["Ruta o proceso"], row["Evidencia"]])
+        story.append(_styled_table(pathway_rows, font_size=8))
+    else:
+        story.append(Paragraph("No se identificaron rutas suficientes con las reglas del prototipo.", body))
+
+    story.append(Paragraph("Interpretacion general", heading))
+    story.extend(_paragraph_list(analysis["interpretations"], body))
+
+    story.append(Paragraph("Recomendaciones de analisis complementarios", heading))
+    story.extend(_paragraph_list(analysis["recommendations"], body))
+
+    story.append(Paragraph("Limitaciones y advertencia etica", heading))
+    story.extend(_paragraph_list(analysis["limitations"], body))
+    story.append(
+        Paragraph(
+            "Este reporte usa frases de posibilidad: posible asociacion, biomarcador candidato y requiere validacion. "
+            "No reemplaza al medico, bacteriologo, bioinformatico ni investigador.",
+            small,
+        )
+    )
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _styled_table(rows: List[List[str]], font_size: int = 8) -> Table:
+    table = Table(rows, repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F766E")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), font_size),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    return table
+

@@ -1,0 +1,12 @@
+{
+  "age": 48,
+  "sex": "Femenino",
+  "presumptive_diagnosis": "Proceso inflamatorio cronico en evaluacion",
+  "symptoms": ["fatiga", "perdida de peso", "dolor articular"],
+  "genomic": ["TP53", "BRCA1", "EGFR"],
+  "transcriptomic": ["IL6", "TNF", "MKI67", "HIF1A"],
+  "proteomic": ["CRP", "CXCL8", "LDHA"],
+  "metabolomic": ["Lactato", "Glucosa", "ATP"],
+  "lab_results": ["PCR elevada", "VSG elevada", "LDH elevada"]
+}
+
