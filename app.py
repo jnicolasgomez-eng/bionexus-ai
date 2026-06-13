@@ -154,10 +154,10 @@ def render_styles() -> None:
             padding-bottom: 3rem;
         }
         .bn-hero {
-            background: linear-gradient(135deg, #062033 0%, #0f766e 55%, #06b6d4 100%);
+            background: linear-gradient(135deg, #04111f 0%, #0f766e 52%, #0891b2 100%);
             color: white;
             border-radius: 18px;
-            padding: 1.2rem 1.35rem;
+            padding: 1.4rem 1.5rem;
             display: flex;
             gap: 1.1rem;
             align-items: center;
@@ -175,10 +175,64 @@ def render_styles() -> None:
             margin: 0;
             font-size: 2.25rem;
             letter-spacing: 0;
+            color: #ffffff;
         }
         .bn-hero p {
             margin: .25rem 0 0 0;
             color: #ddfeff;
+        }
+        .hero-subtitle {
+            color: #ffffff;
+            font-size: 1.25rem;
+            font-weight: 850;
+            margin: .25rem 0 .35rem 0;
+        }
+        .hero-muted {
+            color: #cffafe;
+            line-height: 1.45rem;
+        }
+        .hero-version {
+            color: #a7f3d0;
+            font-weight: 750;
+            margin-top: .25rem;
+        }
+        .omic-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 1rem;
+            margin: .8rem 0 1.5rem 0;
+        }
+        .omic-card {
+            background: linear-gradient(180deg, #ffffff 0%, #ecfeff 100%);
+            border: 1px solid #99f6e4;
+            border-top: 5px solid #0891b2;
+            border-radius: 16px;
+            padding: 1rem;
+            min-height: 155px;
+            box-shadow: 0 12px 26px rgba(15, 23, 42, .08);
+        }
+        .omic-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0f766e;
+            color: white;
+            font-weight: 900;
+            margin-bottom: .65rem;
+        }
+        .omic-card strong {
+            color: #0f172a;
+            display: block;
+            font-size: 1.03rem;
+            margin-bottom: .4rem;
+        }
+        .omic-card span {
+            color: #334155;
+            line-height: 1.4rem;
+            font-size: .95rem;
         }
         .chat-card {
             background: rgba(255,255,255,.94);
@@ -216,14 +270,24 @@ def render_styles() -> None:
             margin: .45rem 0 .25rem 0;
         }
         .warning-box {
-            background: #fff7ed;
-            border: 1px solid #fed7aa;
-            border-left: 6px solid #d97706;
+            background: #fffbeb;
+            border: 1px solid #f59e0b;
+            border-left: 7px solid #b45309;
             border-radius: 12px;
-            color: #7c2d12;
+            color: #451a03;
             padding: .85rem 1rem;
             margin: .75rem 0;
-            font-weight: 650;
+            font-weight: 800;
+        }
+        .warning-box strong,
+        .warning-box span,
+        .warning-box p {
+            color: #451a03;
+        }
+        @media (max-width: 900px) {
+            .omic-grid {
+                grid-template-columns: 1fr;
+            }
         }
         div[data-testid="stDataFrame"] {
             border: 1px solid var(--bn-line);
@@ -237,29 +301,36 @@ def render_styles() -> None:
 
 
 def hero() -> None:
-    with st.container(border=True):
-        logo_col, text_col = st.columns([1, 5], vertical_alignment="center")
-        with logo_col:
-            if LOGO_PATH.exists():
-                st.image(str(LOGO_PATH), use_container_width=True)
-            else:
-                st.markdown("### BioNexus IA")
-        with text_col:
-            st.markdown("# BioNexus IA")
-            st.markdown("### Ayuda en diagnostico, tratamiento y seguimiento de pacientes")
-            st.write(
-                "Plataforma de apoyo interpretativo para laboratorio clinico con IA, seguimiento por ID "
-                "y analisis multi-omico supervisado por bacteriologo/laboratorista clinico."
-            )
-            st.caption(
-                "Integra datos clinicos, preanaliticos, laboratorio, genomica, transcriptomica, "
-                "proteomica, metabolomica, biomarcadores moleculares y evidencia curada."
-            )
-            st.caption(APP_VERSION)
+    logo_html = '<div class="omic-icon">BN</div>'
+    if LOGO_PATH.exists():
+        import base64
 
-    st.warning(
-        "Herramienta de apoyo interpretativo. La liberacion diagnostica debe realizarla el "
-        "bacteriologo/laboratorista clinico responsable y correlacionarse con el medico tratante."
+        encoded = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+        logo_html = f'<img src="data:image/png;base64,{encoded}" alt="BioNexus IA logo">'
+
+    st.markdown(
+        f"""
+        <div class="bn-hero">
+            {logo_html}
+            <div>
+                <h1>BioNexus IA</h1>
+                <div class="hero-subtitle">Ayuda en diagnostico, tratamiento y seguimiento de pacientes</div>
+                <div class="hero-muted">
+                    Plataforma de apoyo interpretativo para laboratorio clinico con IA, seguimiento por ID
+                    y analisis multi-omico supervisado por bacteriologo/laboratorista clinico.
+                </div>
+                <div class="hero-muted">
+                    Integra datos clinicos, preanaliticos, laboratorio, genomica, transcriptomica,
+                    proteomica, metabolomica, biomarcadores moleculares y evidencia curada.
+                </div>
+                <div class="hero-version">{APP_VERSION}</div>
+            </div>
+        </div>
+        <div class="warning-box">
+            Herramienta de apoyo interpretativo. La liberacion diagnostica debe realizarla el bacteriologo/laboratorista clinico responsable y correlacionarse con el medico tratante.
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
@@ -489,15 +560,33 @@ def show_interpretation(case: dict) -> None:
 
 def chat_intake_view() -> None:
     st.markdown('<div class="section-title">Que integra BioNexus IA</div>', unsafe_allow_html=True)
-    omic_a, omic_b, omic_c, omic_d = st.columns(4)
-    with omic_a:
-        st.info("**Genomica**\n\nGenes, variantes o mutaciones relevantes.")
-    with omic_b:
-        st.info("**Transcriptomica**\n\nGenes sobreexpresados o subexpresados.")
-    with omic_c:
-        st.info("**Proteomica**\n\nProteinas aumentadas, disminuidas o candidatas.")
-    with omic_d:
-        st.info("**Metabolomica**\n\nMetabolitos asociados con energia, inflamacion o seguimiento.")
+    st.markdown(
+        """
+        <div class="omic-grid">
+            <div class="omic-card">
+                <div class="omic-icon">DNA</div>
+                <strong>Genomica</strong>
+                <span>Evalua genes, variantes, mutaciones y biomarcadores moleculares relevantes para priorizacion diagnostica.</span>
+            </div>
+            <div class="omic-card">
+                <div class="omic-icon">RNA</div>
+                <strong>Transcriptomica</strong>
+                <span>Integra genes sobreexpresados o subexpresados para reconocer rutas biologicas activas.</span>
+            </div>
+            <div class="omic-card">
+                <div class="omic-icon">PRO</div>
+                <strong>Proteomica</strong>
+                <span>Relaciona proteinas aumentadas o disminuidas con inflamacion, proliferacion y seguimiento.</span>
+            </div>
+            <div class="omic-card">
+                <div class="omic-icon">MET</div>
+                <strong>Metabolomica</strong>
+                <span>Analiza metabolitos como lactato, glucosa o ATP para orientar alteraciones energeticas.</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<div class="section-title">Mini ingreso del paciente</div>', unsafe_allow_html=True)
     with st.form("chat_intake_form"):
