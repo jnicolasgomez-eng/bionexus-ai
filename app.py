@@ -31,6 +31,7 @@ MODULE_PASSWORDS = {
     "ingreso": "ingreso123",
     "seguimiento": "seguimiento123",
     "resumen": "resumen123",
+    "laboratorio": "laboratorio123",
     "seguridad": "seguridad123",
 }
 HOSPITAL_AREAS = [
@@ -309,6 +310,130 @@ Controles necesarios para uso real:
 - Estados del informe: borrador, revisado, liberado, corregido y anulado.
 - Fuentes curadas, versionadas y trazables.
 """
+
+
+def parse_numeric_series(raw: str) -> list[float]:
+    values = []
+    for token in raw.replace(";", ",").replace("\n", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            values.append(float(token))
+        except ValueError:
+            continue
+    return values
+
+
+def linear_regression(x_values: list[float], y_values: list[float]) -> dict:
+    if len(x_values) != len(y_values) or len(x_values) < 2:
+        return {"slope": 0.0, "intercept": 0.0, "r2": 0.0}
+    x_mean = sum(x_values) / len(x_values)
+    y_mean = sum(y_values) / len(y_values)
+    ss_x = sum((x - x_mean) ** 2 for x in x_values)
+    if ss_x == 0:
+        return {"slope": 0.0, "intercept": y_mean, "r2": 0.0}
+    slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_values, y_values)) / ss_x
+    intercept = y_mean - slope * x_mean
+    predicted = [slope * x + intercept for x in x_values]
+    ss_res = sum((y - yp) ** 2 for y, yp in zip(y_values, predicted))
+    ss_tot = sum((y - y_mean) ** 2 for y in y_values)
+    r2 = 1 - (ss_res / ss_tot) if ss_tot else 1.0
+    return {"slope": slope, "intercept": intercept, "r2": r2}
+
+
+def build_calibration_figure(x_values: list[float], y_values: list[float], model: dict) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x_values, y=y_values, mode="markers", name="Calibradores", marker=dict(size=10, color="#0891b2")))
+    if x_values:
+        x_line = [min(x_values), max(x_values)]
+        y_line = [model["slope"] * x + model["intercept"] for x in x_line]
+        fig.add_trace(go.Scatter(x=x_line, y=y_line, mode="lines", name="Ajuste lineal", line=dict(color="#0f766e", width=3)))
+    fig.update_layout(
+        title="Curva de calibracion",
+        xaxis_title="Concentracion del calibrador",
+        yaxis_title="Senal / absorbancia / respuesta",
+        height=420,
+        margin=dict(l=20, r=20, t=55, b=40),
+    )
+    return fig
+
+
+def build_westgard_findings(values: list[float], target_mean: float, sd: float) -> list[dict]:
+    if not values or sd <= 0:
+        return [{"Regla": "Sin datos", "Resultado": "No evaluable", "Accion": "Ingresar valores de control y DE valida."}]
+    z_scores = [(value - target_mean) / sd for value in values]
+    findings = []
+
+    if any(abs(z) > 2 for z in z_scores):
+        findings.append({"Regla": "1-2s", "Resultado": "Alerta", "Accion": "Revisar tendencia, reactivo, calibracion y siguiente control."})
+    if any(abs(z) > 3 for z in z_scores):
+        findings.append({"Regla": "1-3s", "Resultado": "Rechazar corrida", "Accion": "No liberar resultados; investigar error aleatorio o sistematico."})
+    for first, second in zip(z_scores, z_scores[1:]):
+        if first > 2 and second > 2:
+            findings.append({"Regla": "2-2s", "Resultado": "Rechazar corrida", "Accion": "Sospecha de error sistematico por dos controles consecutivos altos."})
+            break
+        if first < -2 and second < -2:
+            findings.append({"Regla": "2-2s", "Resultado": "Rechazar corrida", "Accion": "Sospecha de error sistematico por dos controles consecutivos bajos."})
+            break
+        if abs(first - second) > 4:
+            findings.append({"Regla": "R-4s", "Resultado": "Rechazar corrida", "Accion": "Sospecha de error aleatorio; repetir control y revisar procedimiento."})
+            break
+    for start in range(0, max(len(z_scores) - 3, 0)):
+        window = z_scores[start : start + 4]
+        if all(z > 1 for z in window) or all(z < -1 for z in window):
+            findings.append({"Regla": "4-1s", "Resultado": "Alerta/Rechazo segun politica", "Accion": "Investigar desplazamiento sistematico."})
+            break
+    for start in range(0, max(len(z_scores) - 9, 0)):
+        window = z_scores[start : start + 10]
+        if all(z > 0 for z in window) or all(z < 0 for z in window):
+            findings.append({"Regla": "10x", "Resultado": "Alerta/Rechazo segun politica", "Accion": "Investigar sesgo sostenido."})
+            break
+
+    return findings or [{"Regla": "Westgard multirregla", "Resultado": "Aceptable", "Accion": "Sin violaciones detectadas en este prototipo."}]
+
+
+def build_levey_jennings_figure(values: list[float], target_mean: float, sd: float) -> go.Figure:
+    runs = list(range(1, len(values) + 1))
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=runs, y=values, mode="lines+markers", name="Control", line=dict(color="#0891b2", width=3)))
+    line_specs = [
+        (target_mean, "Media", "#0f766e", "solid"),
+        (target_mean + sd, "+1 DE", "#22c55e", "dot"),
+        (target_mean - sd, "-1 DE", "#22c55e", "dot"),
+        (target_mean + 2 * sd, "+2 DE", "#f59e0b", "dash"),
+        (target_mean - 2 * sd, "-2 DE", "#f59e0b", "dash"),
+        (target_mean + 3 * sd, "+3 DE", "#ef4444", "dash"),
+        (target_mean - 3 * sd, "-3 DE", "#ef4444", "dash"),
+    ]
+    for y_value, name, color, dash in line_specs:
+        fig.add_hline(y=y_value, line_color=color, line_dash=dash, annotation_text=name)
+    fig.update_layout(
+        title="Grafica Levey-Jennings / Westgard",
+        xaxis_title="Corrida de control",
+        yaxis_title="Valor del control",
+        height=450,
+        margin=dict(l=20, r=20, t=55, b=40),
+    )
+    return fig
+
+
+def qc_text_report(data: dict) -> str:
+    return "\n".join(
+        [
+            "BIO NEXUS IA - REPORTE TECNICO DE CONTROL DE CALIDAD",
+            f"Prueba: {data.get('test_name')}",
+            f"Metodo/equipo: {data.get('method')} / {data.get('instrument')}",
+            f"Lote reactivo: {data.get('reagent_lot')}",
+            f"Lote calibrador: {data.get('calibrator_lot')}",
+            f"Lote control: {data.get('control_lot')}",
+            f"R2 calibracion: {data.get('r2')}",
+            f"CV precision: {data.get('cv')}",
+            f"Decision QC: {data.get('decision')}",
+            "",
+            "Este reporte es un apoyo documental. La aceptacion/rechazo debe seguir el procedimiento operativo estandar del laboratorio.",
+        ]
+    )
 
 
 def render_styles() -> None:
@@ -1266,6 +1391,131 @@ def dashboard_view() -> None:
     st.dataframe(resolved if not resolved.empty else pd.DataFrame(columns=saved_df.columns), width="stretch", hide_index=True)
 
 
+def laboratory_qc_view() -> None:
+    st.markdown('<div class="section-title">Laboratorio y control de calidad</div>', unsafe_allow_html=True)
+    st.info(
+        "Modulo tecnico para documentar pruebas programadas, calibracion, control interno, reglas de Westgard, precision y decision de corrida. "
+        "Debe validarse con el procedimiento operativo estandar del laboratorio."
+    )
+
+    st.markdown('<div class="small-title">Datos de corrida analitica</div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    test_name = c1.selectbox("Prueba", list(REFERENCE_RANGES.keys()))
+    method = c2.selectbox("Metodo", ["Quimica clinica", "Inmunoensayo", "Hematologia", "Coagulometria", "PCR/qPCR", "ELISA", "Otro"])
+    instrument = c3.text_input("Equipo / analizador", placeholder="Ejemplo: Analizador 01")
+    c4, c5, c6 = st.columns(3)
+    reagent_lot = c4.text_input("Lote de reactivo")
+    calibrator_lot = c5.text_input("Lote de calibrador")
+    control_lot = c6.text_input("Lote de control")
+    planned_tests = st.multiselect("Pruebas que se van a realizar en esta corrida", list(REFERENCE_RANGES.keys()), default=[test_name])
+
+    checklist_items = {
+        "Reactivos vigentes y sin vencimiento": st.checkbox("Reactivos vigentes y sin vencimiento"),
+        "Calibrador vigente y reconstituido correctamente": st.checkbox("Calibrador vigente y reconstituido correctamente"),
+        "Controles internos procesados": st.checkbox("Controles internos procesados"),
+        "Temperatura/condiciones ambientales verificadas": st.checkbox("Temperatura/condiciones ambientales verificadas"),
+        "Mantenimiento o verificacion del equipo documentado": st.checkbox("Mantenimiento o verificacion del equipo documentado"),
+        "Criterios de aceptacion definidos antes de liberar": st.checkbox("Criterios de aceptacion definidos antes de liberar"),
+    }
+    checklist_ok = all(checklist_items.values())
+
+    st.markdown('<div class="section-title">Curva de calibracion</div>', unsafe_allow_html=True)
+    col_a, col_b = st.columns(2)
+    concentrations_raw = col_a.text_area("Concentraciones de calibradores", value="0, 25, 50, 100, 200")
+    signal_raw = col_b.text_area("Senales / absorbancias", value="0.01, 0.22, 0.49, 1.01, 2.03")
+    concentrations = parse_numeric_series(concentrations_raw)
+    signals = parse_numeric_series(signal_raw)
+    calibration = linear_regression(concentrations, signals)
+    st.plotly_chart(build_calibration_figure(concentrations, signals, calibration), width="stretch")
+    k1, k2, k3 = st.columns(3)
+    with k1:
+        metric_card("Pendiente", f"{calibration['slope']:.4f}")
+    with k2:
+        metric_card("Intercepto", f"{calibration['intercept']:.4f}")
+    with k3:
+        metric_card("R2", f"{calibration['r2']:.4f}")
+    r2_threshold = st.number_input("Criterio minimo R2", min_value=0.0, max_value=1.0, value=0.990, step=0.001, format="%.3f")
+    calibration_ok = calibration["r2"] >= r2_threshold
+    st.success("Calibracion aceptable segun R2 configurado.") if calibration_ok else st.error("Calibracion no aceptable: revisar calibradores, pipeteo, reactivos o equipo.")
+
+    st.markdown('<div class="section-title">Control interno: Levey-Jennings y Westgard</div>', unsafe_allow_html=True)
+    q1, q2 = st.columns(2)
+    target_mean = q1.number_input("Media asignada del control", value=100.0, step=0.1)
+    target_sd = q2.number_input("Desviacion estandar asignada", min_value=0.001, value=5.0, step=0.1)
+    qc_values_raw = st.text_area("Valores consecutivos del control", value="98, 101, 104, 107, 111, 108, 106, 103, 102, 101")
+    qc_values = parse_numeric_series(qc_values_raw)
+    st.plotly_chart(build_levey_jennings_figure(qc_values, target_mean, target_sd), width="stretch")
+    westgard_df = pd.DataFrame(build_westgard_findings(qc_values, target_mean, target_sd))
+    st.dataframe(westgard_df, width="stretch", hide_index=True)
+    westgard_ok = not westgard_df["Resultado"].astype(str).str.contains("Rechazar", case=False, na=False).any()
+
+    st.markdown('<div class="section-title">Precision, CV y error total</div>', unsafe_allow_html=True)
+    precision_raw = st.text_area("Replicados de precision", value="99.1, 100.3, 98.8, 101.0, 100.1")
+    precision_values = parse_numeric_series(precision_raw)
+    if len(precision_values) >= 2:
+        precision_mean = sum(precision_values) / len(precision_values)
+        variance = sum((value - precision_mean) ** 2 for value in precision_values) / (len(precision_values) - 1)
+        precision_sd = variance ** 0.5
+        cv = (precision_sd / precision_mean * 100) if precision_mean else 0.0
+    else:
+        precision_mean = 0.0
+        precision_sd = 0.0
+        cv = 0.0
+    p1, p2, p3 = st.columns(3)
+    with p1:
+        metric_card("Media precision", f"{precision_mean:.3f}")
+    with p2:
+        metric_card("DE precision", f"{precision_sd:.3f}")
+    with p3:
+        metric_card("CV %", f"{cv:.2f}")
+    max_cv = st.number_input("CV maximo permitido (%)", min_value=0.0, value=5.0, step=0.1)
+    bias_percent = st.number_input("Sesgo estimado (%)", value=0.0, step=0.1)
+    total_error = abs(bias_percent) + 1.65 * cv
+    allowable_total_error = st.number_input("Error total permitido (%)", min_value=0.0, value=10.0, step=0.1)
+    precision_ok = cv <= max_cv
+    total_error_ok = total_error <= allowable_total_error
+    st.write(f"Error total estimado: **{total_error:.2f}%**")
+
+    mandatory_df = pd.DataFrame(
+        [
+            {"Control": "Checklist preanalitico/analitico", "Estado": "OK" if checklist_ok else "Pendiente"},
+            {"Control": "Curva de calibracion", "Estado": "OK" if calibration_ok else "No aceptable"},
+            {"Control": "Westgard / Levey-Jennings", "Estado": "OK" if westgard_ok else "Rechazar corrida"},
+            {"Control": "Precision / CV", "Estado": "OK" if precision_ok else "No aceptable"},
+            {"Control": "Error total", "Estado": "OK" if total_error_ok else "No aceptable"},
+        ]
+    )
+    st.markdown('<div class="section-title">Decision tecnica de corrida</div>', unsafe_allow_html=True)
+    st.dataframe(mandatory_df, width="stretch", hide_index=True)
+    decision_ok = checklist_ok and calibration_ok and westgard_ok and precision_ok and total_error_ok
+    if decision_ok:
+        st.success("Corrida aceptable segun criterios configurados del prototipo.")
+        decision = "Aceptada"
+    else:
+        st.error("Corrida no aceptable o pendiente. No liberar resultados hasta revisar acciones correctivas.")
+        decision = "No aceptada / pendiente"
+
+    qc_payload = {
+        "test_name": test_name,
+        "method": method,
+        "instrument": instrument,
+        "reagent_lot": reagent_lot,
+        "calibrator_lot": calibrator_lot,
+        "control_lot": control_lot,
+        "r2": f"{calibration['r2']:.4f}",
+        "cv": f"{cv:.2f}%",
+        "decision": decision,
+        "planned_tests": ", ".join(planned_tests),
+    }
+    st.download_button(
+        "Descargar reporte tecnico de control de calidad",
+        data=qc_text_report(qc_payload).encode("utf-8"),
+        file_name="control_calidad_bionexus.txt",
+        mime="text/plain",
+        type="primary",
+    )
+
+
 def safety_view() -> None:
     st.markdown('<div class="section-title">Seguridad, trazabilidad y siguiente fase</div>', unsafe_allow_html=True)
     st.write("- Esta version usa contrasenas de prototipo por modulo. Para uso real deben reemplazarse por login institucional.")
@@ -1327,8 +1577,8 @@ init_db()
 render_styles()
 hero()
 
-intake_tab, follow_tab, dashboard_tab, safety_tab = st.tabs(
-    ["Ingreso del paciente", "Seguimiento por ID", "Resumen de pacientes", "Validacion y seguridad"]
+intake_tab, follow_tab, dashboard_tab, lab_tab, safety_tab = st.tabs(
+    ["Ingreso del paciente", "Seguimiento por ID", "Resumen de pacientes", "Laboratorio y QC", "Validacion y seguridad"]
 )
 with intake_tab:
     if require_module_password("ingreso", "Ingreso del paciente"):
@@ -1339,6 +1589,9 @@ with follow_tab:
 with dashboard_tab:
     if require_module_password("resumen", "Resumen de pacientes"):
         dashboard_view()
+with lab_tab:
+    if require_module_password("laboratorio", "Laboratorio y control de calidad"):
+        laboratory_qc_view()
 with safety_tab:
     if require_module_password("seguridad", "Validacion y seguridad"):
         safety_view()
