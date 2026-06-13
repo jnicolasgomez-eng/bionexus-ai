@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -13,6 +15,8 @@ from modules.report import build_pdf
 
 APP_DIR = Path(__file__).parent
 EXAMPLE_PATH = APP_DIR / "data" / "example_case.json"
+LAB_NAME = "BioNexus AI"
+REPORT_TZ = ZoneInfo("America/Bogota")
 
 
 st.set_page_config(
@@ -33,6 +37,12 @@ def join_items(items: list[str]) -> str:
     """Convierte listas del ejemplo en texto editable para Streamlit."""
 
     return ", ".join(items)
+
+
+def current_report_datetime() -> str:
+    """Fecha y hora de expedicion del informe en hora de Colombia."""
+
+    return datetime.now(REPORT_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def render_styles() -> None:
@@ -423,15 +433,16 @@ with st.sidebar:
     st.info("Prototipo academico. No reemplaza criterio clinico ni profesional.")
 
 source = example if use_example else {}
+report_datetime = current_report_datetime()
 
 st.markdown(
     """
     <div class="hero">
         <h1>BioNexus AI</h1>
-        <p>Plataforma academica para integracion multi-omica mediante inteligencia artificial.</p>
+        <p>Informe academico de apoyo diagnostico y terapeutico basado en integracion multi-omica.</p>
         <p><strong>Genomica | Transcriptomica | Proteomica | Metabolomica | Datos clinicos</strong></p>
     </div>
-    <div class="warning">Uso educativo e investigativo. No constituye diagnostico medico.</div>
+    <div class="warning">Uso educativo e investigativo. No constituye diagnostico medico ni indicacion terapeutica real.</div>
     """,
     unsafe_allow_html=True,
 )
@@ -442,7 +453,7 @@ st.markdown(
     """
     + guide_card(
         "Que vas a ingresar",
-        "Datos simulados de una muestra o paciente: edad, sintomas, genes, proteinas, metabolitos y laboratorio.",
+        "Datos administrativos, sintomas, laboratorio y marcadores omicos simulados o anonimizados.",
     )
     + guide_card(
         "Como escribirlos",
@@ -450,7 +461,7 @@ st.markdown(
     )
     + guide_card(
         "Que entrega el sistema",
-        "Panel recomendado, biomarcadores candidatos, rutas posiblemente alteradas, nivel de riesgo academico y reporte PDF.",
+        "Panel recomendado, rutas posiblemente alteradas, orientacion terapeutica academica y reporte PDF.",
     )
     + """
     </div>
@@ -461,13 +472,37 @@ st.markdown(
 st.markdown('<div class="section-title">Formulario guiado de ingreso de datos</div>', unsafe_allow_html=True)
 
 with st.form("case_form"):
-    step_title(1, "Identificacion clinica simulada")
+    step_title(1, "Datos administrativos del informe")
     st.markdown(
-        '<div class="mini-note">Estos campos describen el contexto del caso. No escribas datos personales reales; usa informacion simulada para la actividad academica.</div>',
+        '<div class="mini-note">Usa datos simulados o anonimizados. Este encabezado permite que el informe se vea mas cercano a un reporte academico de laboratorio.</div>',
         unsafe_allow_html=True,
     )
-    col_a, col_b, col_c = st.columns([1, 1, 2])
-    age = col_a.number_input("Edad simulada", min_value=0, max_value=120, value=int(source.get("age", 35)))
+    admin_a, admin_b = st.columns([1.4, 1])
+    patient_name = admin_a.text_input(
+        "Nombre del paciente",
+        value=source.get("patient_name", "Paciente simulado"),
+        placeholder="Ejemplo: Paciente simulado 01",
+    )
+    patient_id = admin_b.text_input(
+        "ID del paciente o muestra",
+        value=source.get("patient_id", "BNX-0001"),
+        placeholder="Ejemplo: BNX-0001",
+    )
+
+    admin_c, admin_d, admin_e = st.columns([1, 1.2, 1.2])
+    age = admin_c.number_input("Edad del paciente", min_value=0, max_value=120, value=int(source.get("age", 35)))
+    lab_name = admin_d.text_input("Nombre del laboratorio", value=LAB_NAME)
+    bacteriologist_name = admin_e.text_input(
+        "Nombre del bacteriologo a cargo",
+        value=source.get("bacteriologist_name", ""),
+        placeholder="Nombre del profesional",
+    )
+
+    st.text_input("Fecha y hora automatica de expedicion", value=report_datetime, disabled=True)
+    field_note("La fecha y hora se generan automaticamente al cargar o actualizar la app.")
+
+    step_title(2, "Datos clinicos del paciente")
+    col_b, col_c = st.columns([1, 2])
     sex = col_b.selectbox(
         "Sexo biologico reportado",
         ["Femenino", "Masculino", "Intersexual", "No informado"],
@@ -489,7 +524,7 @@ with st.form("case_form"):
     )
     field_note("Escribe sintomas separados por comas. Ejemplo: fatiga, fiebre, dolor articular.")
 
-    step_title(2, "Resultados de laboratorio complementarios")
+    step_title(3, "Resultados de laboratorio")
     lab_results = st.text_area(
         "Laboratorio clinico o experimental",
         value=join_items(source.get("lab_results", [])),
@@ -505,7 +540,7 @@ with st.form("case_form"):
     marker_recommendations = recommend_marker_panel(preliminary_case)
     recommended_markers = marker_recommendations["recommended_markers"]
 
-    step_title(3, "Panel sugerido por BioNexus AI")
+    step_title(4, "Panel sugerido por BioNexus AI")
     st.markdown(
         '<div class="mini-note">Segun el contexto clinico simulado, la app recomienda marcadores candidatos y explica por que pueden ser utiles para una exploracion academica. Puedes aceptar el panel o editarlo.</div>',
         unsafe_allow_html=True,
@@ -526,7 +561,7 @@ with st.form("case_form"):
         recommended_markers["metabolomic"] if use_recommended_panel else source.get("metabolomic", [])
     )
 
-    step_title(4, "Datos omicos simulados editables")
+    step_title(5, "Datos omicos editables")
     st.markdown(
         '<div class="mini-note">Estos campos se llenan con la recomendacion automatica. El bacteriologo, bioinformatico o estudiante puede modificar, agregar o retirar marcadores antes de analizar.</div>',
         unsafe_allow_html=True,
@@ -563,6 +598,11 @@ with st.form("case_form"):
 
 
 case = {
+    "patient_name": patient_name,
+    "patient_id": patient_id,
+    "report_datetime": report_datetime,
+    "lab_name": lab_name,
+    "bacteriologist_name": bacteriologist_name,
     "age": age,
     "sex": sex,
     "presumptive_diagnosis": presumptive_diagnosis,
@@ -572,6 +612,7 @@ case = {
     "proteomic": parse_items(proteomic),
     "metabolomic": parse_items(metabolomic),
     "lab_results": parse_items(lab_results),
+    "recommendation_rows": marker_recommendations["recommendation_rows"],
 }
 
 if submitted or use_example:
@@ -643,11 +684,16 @@ if submitted or use_example:
         st.markdown('<div class="small-title">Datos ingresados al prototipo</div>', unsafe_allow_html=True)
         input_df = pd.DataFrame(
             [
+                {"Campo": "Nombre del paciente", "Valor": case["patient_name"] or "No informado"},
+                {"Campo": "ID", "Valor": case["patient_id"] or "No informado"},
+                {"Campo": "Fecha y hora de expedicion", "Valor": case["report_datetime"]},
+                {"Campo": "Laboratorio", "Valor": case["lab_name"] or LAB_NAME},
+                {"Campo": "Bacteriologo a cargo", "Valor": case["bacteriologist_name"] or "No informado"},
                 {"Campo": "Edad simulada", "Valor": str(case["age"])},
                 {"Campo": "Sexo biologico reportado", "Valor": case["sex"]},
                 {"Campo": "Diagnostico presuntivo", "Valor": case["presumptive_diagnosis"] or "No informado"},
                 {"Campo": "Sintomas o hallazgos", "Valor": ", ".join(case["symptoms"]) or "No informado"},
-                {"Campo": "Laboratorio", "Valor": ", ".join(case["lab_results"]) or "No informado"},
+                {"Campo": "Resultados del laboratorio", "Valor": ", ".join(case["lab_results"]) or "No informado"},
             ]
         )
         st.dataframe(input_df, use_container_width=True, hide_index=True)
@@ -703,6 +749,9 @@ if submitted or use_example:
         st.markdown("**Recomendaciones de analisis complementarios**")
         for recommendation in analysis["recommendations"]:
             st.write(f"- {recommendation}")
+        st.markdown("**Posible orientacion terapeutica academica**")
+        for item in analysis["treatment_orientation"]:
+            st.write(f"- {item}")
         st.markdown("**Limitaciones**")
         for limitation in analysis["limitations"]:
             st.write(f"- {limitation}")
