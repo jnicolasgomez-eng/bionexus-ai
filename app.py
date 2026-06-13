@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import html
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -312,6 +313,10 @@ Controles necesarios para uso real:
 """
 
 
+def printable_block(text: str) -> str:
+    return f'<div class="print-block">{html.escape(text)}</div>'
+
+
 def parse_numeric_series(raw: str) -> list[float]:
     values = []
     for token in raw.replace(";", ",").replace("\n", ",").split(","):
@@ -617,6 +622,30 @@ def render_styles() -> None:
         }
         div[data-testid="stTabs"] button {
             font-weight: 850;
+        }
+        .print-block {
+            background: #ffffff;
+            color: #0f172a;
+            border: 1px solid #b7e4ea;
+            border-radius: 12px;
+            padding: 1rem;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            line-height: 1.45rem;
+            font-size: .96rem;
+            font-family: Arial, sans-serif;
+        }
+        .print-block * {
+            color: #0f172a;
+        }
+        div[data-testid="stExpander"] {
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+        }
+        pre, code {
+            color: #0f172a !important;
+            background: #ffffff !important;
         }
         </style>
         """,
@@ -1568,10 +1597,10 @@ def safety_view() -> None:
         )
 
     with st.expander("Vista para imprimir: consentimiento informado"):
-        st.text(consent_form_text())
+        st.markdown(printable_block(consent_form_text()), unsafe_allow_html=True)
 
     with st.expander("Vista para imprimir: trazabilidad e interoperabilidad"):
-        st.text(standards_traceability_text())
+        st.markdown(printable_block(standards_traceability_text()), unsafe_allow_html=True)
 
 
 def main() -> None:
