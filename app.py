@@ -48,6 +48,30 @@ HOSPITAL_AREAS = [
     "Laboratorio clinico",
     "Otro",
 ]
+REFERENCE_CATALOG_VERSION = "BioNexus Reference Catalog v0.1 - prototipo validable"
+REFERENCE_CATALOG_SOURCE = "Catálogo curado interno del prototipo; validar contra manual del laboratorio, método, equipo, edad, sexo y población."
+REFERENCE_RANGES = {
+    "Hemoglobina": {"loinc": "718-7", "unit": "g/dL", "low": 12.0, "high": 16.0, "specimen": "Sangre total"},
+    "Leucocitos": {"loinc": "6690-2", "unit": "10^3/uL", "low": 4.0, "high": 11.0, "specimen": "Sangre total"},
+    "Neutrofilos absolutos": {"loinc": "751-8", "unit": "10^3/uL", "low": 1.5, "high": 7.5, "specimen": "Sangre total"},
+    "Plaquetas": {"loinc": "777-3", "unit": "10^3/uL", "low": 150.0, "high": 450.0, "specimen": "Sangre total"},
+    "PCR cuantitativa": {"loinc": "1988-5", "unit": "mg/L", "low": 0.0, "high": 5.0, "specimen": "Suero/plasma"},
+    "VSG": {"loinc": "30341-2", "unit": "mm/h", "low": 0.0, "high": 20.0, "specimen": "Sangre total"},
+    "Procalcitonina": {"loinc": "33959-8", "unit": "ng/mL", "low": 0.0, "high": 0.5, "specimen": "Suero/plasma"},
+    "Glucosa": {"loinc": "2345-7", "unit": "mg/dL", "low": 70.0, "high": 100.0, "specimen": "Suero/plasma"},
+    "Lactato": {"loinc": "2524-7", "unit": "mmol/L", "low": 0.5, "high": 2.2, "specimen": "Sangre/plasma"},
+    "Creatinina": {"loinc": "2160-0", "unit": "mg/dL", "low": 0.6, "high": 1.3, "specimen": "Suero/plasma"},
+    "Urea": {"loinc": "3094-0", "unit": "mg/dL", "low": 15.0, "high": 40.0, "specimen": "Suero/plasma"},
+    "Sodio": {"loinc": "2951-2", "unit": "mmol/L", "low": 135.0, "high": 145.0, "specimen": "Suero/plasma"},
+    "Potasio": {"loinc": "2823-3", "unit": "mmol/L", "low": 3.5, "high": 5.1, "specimen": "Suero/plasma"},
+    "AST": {"loinc": "1920-8", "unit": "U/L", "low": 0.0, "high": 40.0, "specimen": "Suero/plasma"},
+    "ALT": {"loinc": "1742-6", "unit": "U/L", "low": 0.0, "high": 41.0, "specimen": "Suero/plasma"},
+    "Bilirrubina total": {"loinc": "1975-2", "unit": "mg/dL", "low": 0.2, "high": 1.2, "specimen": "Suero/plasma"},
+    "Ferritina": {"loinc": "2276-4", "unit": "ng/mL", "low": 30.0, "high": 300.0, "specimen": "Suero"},
+    "CK total": {"loinc": "2157-6", "unit": "U/L", "low": 30.0, "high": 200.0, "specimen": "Suero"},
+    "LDH": {"loinc": "14804-9", "unit": "U/L", "low": 140.0, "high": 280.0, "specimen": "Suero"},
+    "TSH": {"loinc": "3016-3", "unit": "uIU/mL", "low": 0.4, "high": 4.0, "specimen": "Suero"},
+}
 
 
 CURATED_KNOWLEDGE = [
@@ -172,6 +196,119 @@ def require_module_password(module_key: str, title: str) -> bool:
     else:
         st.info("Ingresa la contraseña del módulo para continuar.")
     return False
+
+
+def evaluate_reference_flag(test_name: str, value: float | None) -> str:
+    if value is None or test_name not in REFERENCE_RANGES:
+        return ""
+    reference = REFERENCE_RANGES[test_name]
+    if value < reference["low"]:
+        return "L"
+    if value > reference["high"]:
+        return "H"
+    return ""
+
+
+def reference_range_text(test_name: str) -> str:
+    reference = REFERENCE_RANGES.get(test_name)
+    if not reference:
+        return "Rango no configurado"
+    return f'{reference["low"]} - {reference["high"]} {reference["unit"]}'
+
+
+def build_structured_result(test_name: str, value: float | None) -> dict:
+    reference = REFERENCE_RANGES.get(test_name, {})
+    return {
+        "Prueba": test_name,
+        "LOINC": reference.get("loinc", "N/D"),
+        "Valor": "" if value is None else value,
+        "Unidades": reference.get("unit", ""),
+        "Rango de referencia": reference_range_text(test_name),
+        "Bandera": evaluate_reference_flag(test_name, value),
+        "Muestra": reference.get("specimen", "N/D"),
+        "Catalogo": REFERENCE_CATALOG_VERSION,
+    }
+
+
+def structured_results_summary(results: list[dict]) -> list[str]:
+    items = []
+    for row in results:
+        flag = f" {row['Bandera']}" if row.get("Bandera") else ""
+        items.append(f"{row['Prueba']} {row['Valor']} {row['Unidades']}{flag}".strip())
+    return items
+
+
+def reference_catalog_dataframe() -> pd.DataFrame:
+    rows = []
+    for test_name, reference in REFERENCE_RANGES.items():
+        rows.append(
+            {
+                "Prueba": test_name,
+                "LOINC": reference["loinc"],
+                "Muestra": reference["specimen"],
+                "Unidad": reference["unit"],
+                "Bajo": reference["low"],
+                "Alto": reference["high"],
+                "Version": REFERENCE_CATALOG_VERSION,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def consent_form_text() -> str:
+    return f"""
+BIO NEXUS IA - CONSENTIMIENTO INFORMADO PARA APOYO INTERPRETATIVO DE LABORATORIO
+
+Paciente: ______________________________________
+ID paciente/muestra: ___________________________
+Fecha: ________________________________________
+
+Declaro que he sido informado(a) de que BioNexus IA es una herramienta de apoyo
+interpretativo para laboratorio clinico, seguimiento de resultados y priorizacion
+de pruebas. La liberacion diagnostica debe realizarla el profesional responsable.
+
+Autorizo el uso de mis datos clinicos y resultados de laboratorio para analisis
+interpretativo dentro del flujo institucional, con manejo confidencial y trazable.
+
+Entiendo que:
+- Los resultados deben correlacionarse con criterio clinico y profesional.
+- Los rangos de referencia dependen del laboratorio, metodo, equipo, edad, sexo y poblacion.
+- El sistema no reemplaza al medico ni al bacteriologo/laboratorista responsable.
+- Para antimicrobianos se requiere cultivo/antibiograma, guias institucionales y validacion medica.
+
+Firma del paciente/acudiente: ______________________________
+Documento: ________________________________________________
+Firma del profesional que informa: _________________________
+
+Catalogo usado: {REFERENCE_CATALOG_VERSION}
+Fuente del catalogo: {REFERENCE_CATALOG_SOURCE}
+"""
+
+
+def standards_traceability_text() -> str:
+    return f"""
+BIO NEXUS IA - TRAZABILIDAD E INTEROPERABILIDAD
+
+Catalogo de referencias:
+- Version: {REFERENCE_CATALOG_VERSION}
+- Fuente: {REFERENCE_CATALOG_SOURCE}
+- Regla de bandera: L si el valor esta por debajo del limite bajo; H si esta por encima del limite alto; vacio si esta dentro del rango.
+
+Estandares previstos:
+- HL7/FHIR: Observation y DiagnosticReport para resultados y reportes.
+- LOINC: codificacion de pruebas de laboratorio.
+- SNOMED CT: hallazgos clinicos, sintomas, procedimientos y conceptos clinicos.
+- CIE-10/ICD-10: codificacion diagnostica institucional.
+- Unidades estandarizadas: registro obligatorio de unidad por prueba.
+- Consentimiento informado: requerido para tratamiento de datos y apoyo interpretativo.
+
+Controles necesarios para uso real:
+- Login institucional y roles.
+- Cifrado de datos.
+- Auditoria de ingreso, consulta, edicion, descarga y liberacion.
+- Estados del informe: borrador, revisado, liberado, corregido y anulado.
+- Fuentes curadas, versionadas y trazables.
+"""
 
 
 def render_styles() -> None:
@@ -814,6 +951,10 @@ def show_interpretation(case: dict) -> None:
         st.write(f"- {item}")
     st.warning("No prescribe antibiotico, dosis ni duracion. Validar con cultivo/antibiograma, guias institucionales y medico tratante.")
 
+    if case.get("structured_lab_results"):
+        st.markdown('<div class="section-title">Resultados cuantitativos interpretados</div>', unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(case["structured_lab_results"]), width="stretch", hide_index=True)
+
     st.markdown('<div class="section-title">Biomarcadores candidatos</div>', unsafe_allow_html=True)
     st.dataframe(pd.DataFrame(analysis["candidates"]), width="stretch", hide_index=True)
     st.plotly_chart(build_bar_figure(analysis), width="stretch")
@@ -948,7 +1089,31 @@ def follow_up_view() -> None:
         collection_date = c1.date_input("Fecha de toma de muestra")
         reception_date = c2.date_input("Fecha de recepcion")
         method_used = st.selectbox("Metodo usado", ["PCR", "qPCR", "ELISA", "Secuenciacion", "Espectrometria", "Inmunoensayo", "Otro"])
-        lab_results = st.text_area("Resultados del laboratorio", placeholder="PCR 48 mg/L, VSG 60 mm/h, lactato 3.1 mmol/L")
+        suggested_tests = [row.get("Examen sugerido") for row in record.get("recommended_exams", []) if row.get("Examen sugerido")]
+        test_options = list(dict.fromkeys(suggested_tests + list(REFERENCE_RANGES.keys())))
+        performed_tests = st.multiselect(
+            "Pruebas realizadas",
+            test_options,
+            default=suggested_tests[: min(len(suggested_tests), 4)],
+            help="Selecciona las pruebas enviadas o realizadas. Si estan en el catalogo, la app completa unidad, rango y bandera H/L.",
+        )
+        structured_values = {}
+        if performed_tests:
+            st.markdown('<div class="small-title">Valores numericos</div>', unsafe_allow_html=True)
+            for idx, test_name in enumerate(performed_tests):
+                reference = REFERENCE_RANGES.get(test_name)
+                cols = st.columns([1.4, 1, 1.1, 0.8])
+                cols[0].write(f"**{test_name}**")
+                if reference:
+                    value = cols[1].number_input("Valor", key=f"lab_value_{idx}_{test_name}", value=None, step=0.1, format="%.3f")
+                    cols[2].write(f'{reference["unit"]} | Ref: {reference["low"]} - {reference["high"]}')
+                    cols[3].write("Pendiente" if value is None else (evaluate_reference_flag(test_name, value) or "Normal"))
+                    structured_values[test_name] = value
+                else:
+                    cols[1].write("Sin rango")
+                    cols[2].write("Usar resultado textual")
+                    cols[3].write("")
+        lab_results = st.text_area("Resultados textuales adicionales", placeholder="Ejemplo: cultivo negativo, observaciones del equipo, comentario morfologico")
         c3, c4, c5 = st.columns([1.4, 1, 1])
         reference_values = c3.text_input("Valores de referencia", placeholder="PCR < 5 mg/L")
         units = c4.text_input("Unidades", placeholder="mg/L")
@@ -972,6 +1137,11 @@ def follow_up_view() -> None:
         submitted = st.form_submit_button("Actualizar informacion y continuar interpretacion", type="primary")
 
     if submitted:
+        structured_lab_results = [
+            build_structured_result(test_name, structured_values.get(test_name))
+            for test_name in performed_tests
+            if test_name in REFERENCE_RANGES and structured_values.get(test_name) is not None
+        ]
         intake = {**record}
         intake.update(
             {
@@ -981,7 +1151,8 @@ def follow_up_view() -> None:
                 "collection_date": str(collection_date),
                 "reception_date": str(reception_date),
                 "method_used": method_used,
-                "lab_results": lab_results,
+                "lab_results": ", ".join(structured_results_summary(structured_lab_results) + parse_items(lab_results)),
+                "structured_lab_results": structured_lab_results,
                 "reference_values": reference_values,
                 "units": units,
                 "result_status": result_status,
@@ -1105,6 +1276,51 @@ def safety_view() -> None:
     st.write("- La IA debe usar fuentes curadas, versionadas y trazables, no internet abierto sin filtro.")
     st.write("- Para antimicrobianos: no formula antibiotico ni dosis sin cultivo/antibiograma, guias institucionales y validacion medica.")
     st.write("- Para integracion hospitalaria futura: HL7/FHIR, LOINC, SNOMED CT, CIE-10, unidades estandarizadas y consentimiento informado.")
+
+    st.markdown('<div class="section-title">Catalogo curado de valores de referencia</div>', unsafe_allow_html=True)
+    st.warning(
+        "Este catalogo es una base prototipo versionada. En uso real debe reemplazarse o validarse con el manual oficial del laboratorio, "
+        "metodo, equipo, edad, sexo y poblacion atendida."
+    )
+    st.caption(f"Version: {REFERENCE_CATALOG_VERSION}")
+    st.caption(f"Fuente: {REFERENCE_CATALOG_SOURCE}")
+    st.dataframe(reference_catalog_dataframe(), width="stretch", hide_index=True)
+
+    st.markdown('<div class="section-title">Estandares e interoperabilidad</div>', unsafe_allow_html=True)
+    standards_df = pd.DataFrame(
+        [
+            {"Estandar": "HL7/FHIR", "Uso en BioNexus IA": "Observation y DiagnosticReport para resultados e informes."},
+            {"Estandar": "LOINC", "Uso en BioNexus IA": "Codigos de pruebas de laboratorio."},
+            {"Estandar": "SNOMED CT", "Uso en BioNexus IA": "Hallazgos, sintomas, procedimientos y conceptos clinicos."},
+            {"Estandar": "CIE-10/ICD-10", "Uso en BioNexus IA": "Codificacion diagnostica institucional."},
+            {"Estandar": "Unidades estandarizadas", "Uso en BioNexus IA": "Cada resultado cuantitativo debe tener unidad."},
+            {"Estandar": "Consentimiento informado", "Uso en BioNexus IA": "Formato imprimible para firma del paciente/acudiente."},
+        ]
+    )
+    st.dataframe(standards_df, width="stretch", hide_index=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button(
+            "Descargar consentimiento informado",
+            data=consent_form_text().encode("utf-8"),
+            file_name="consentimiento_informado_bionexus.txt",
+            mime="text/plain",
+            type="primary",
+        )
+    with c2:
+        st.download_button(
+            "Descargar trazabilidad y estandares",
+            data=standards_traceability_text().encode("utf-8"),
+            file_name="trazabilidad_estandares_bionexus.txt",
+            mime="text/plain",
+        )
+
+    with st.expander("Vista para imprimir: consentimiento informado"):
+        st.text(consent_form_text())
+
+    with st.expander("Vista para imprimir: trazabilidad e interoperabilidad"):
+        st.text(standards_traceability_text())
 
 
 init_db()
