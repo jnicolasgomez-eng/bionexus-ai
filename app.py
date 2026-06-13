@@ -237,27 +237,29 @@ def render_styles() -> None:
 
 
 def hero() -> None:
-    logo_html = ""
-    if LOGO_PATH.exists():
-        import base64
+    with st.container(border=True):
+        logo_col, text_col = st.columns([1, 5], vertical_alignment="center")
+        with logo_col:
+            if LOGO_PATH.exists():
+                st.image(str(LOGO_PATH), use_container_width=True)
+            else:
+                st.markdown("### BioNexus IA")
+        with text_col:
+            st.markdown("# BioNexus IA")
+            st.markdown("### Ayuda en diagnostico, tratamiento y seguimiento de pacientes")
+            st.write(
+                "Plataforma de apoyo interpretativo para laboratorio clinico con IA, seguimiento por ID "
+                "y analisis multi-omico supervisado por bacteriologo/laboratorista clinico."
+            )
+            st.caption(
+                "Integra datos clinicos, preanaliticos, laboratorio, genomica, transcriptomica, "
+                "proteomica, metabolomica, biomarcadores moleculares y evidencia curada."
+            )
+            st.caption(APP_VERSION)
 
-        encoded = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f'<img src="data:image/png;base64,{encoded}" alt="BioNexus AI logo">'
-    st.markdown(
-        f"""
-        <div class="bn-hero">
-            {logo_html}
-            <div>
-                <h1>Charla con BioNexus AI</h1>
-                <p>Apoyo interpretativo de laboratorio con IA, biomarcadores y seguimiento por ID.</p>
-                <p><strong>{APP_VERSION}</strong></p>
-            </div>
-        </div>
-        <div class="warning-box">
-            Herramienta de apoyo interpretativo. La liberacion diagnostica debe realizarla el bacteriologo/laboratorista clinico responsable y correlacionarse con el medico tratante.
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.warning(
+        "Herramienta de apoyo interpretativo. La liberacion diagnostica debe realizarla el "
+        "bacteriologo/laboratorista clinico responsable y correlacionarse con el medico tratante."
     )
 
 
@@ -486,6 +488,17 @@ def show_interpretation(case: dict) -> None:
 
 
 def chat_intake_view() -> None:
+    st.markdown('<div class="section-title">Que integra BioNexus IA</div>', unsafe_allow_html=True)
+    omic_a, omic_b, omic_c, omic_d = st.columns(4)
+    with omic_a:
+        st.info("**Genomica**\n\nGenes, variantes o mutaciones relevantes.")
+    with omic_b:
+        st.info("**Transcriptomica**\n\nGenes sobreexpresados o subexpresados.")
+    with omic_c:
+        st.info("**Proteomica**\n\nProteinas aumentadas, disminuidas o candidatas.")
+    with omic_d:
+        st.info("**Metabolomica**\n\nMetabolitos asociados con energia, inflamacion o seguimiento.")
+
     st.markdown('<div class="section-title">Mini ingreso del paciente</div>', unsafe_allow_html=True)
     with st.form("chat_intake_form"):
         patient_name = st.text_input("Nombre del paciente", placeholder="Ejemplo: Paciente simulado 01")
@@ -613,4 +626,3 @@ with follow_tab:
     follow_up_view()
 with safety_tab:
     safety_view()
-
