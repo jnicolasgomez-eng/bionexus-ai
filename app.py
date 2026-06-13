@@ -477,52 +477,68 @@ with st.form("case_form"):
         '<div class="mini-note">Usa datos simulados o anonimizados. Este encabezado permite que el informe se vea mas cercano a un reporte academico de laboratorio.</div>',
         unsafe_allow_html=True,
     )
-    admin_a, admin_b = st.columns([1.4, 1])
-    patient_name = admin_a.text_input(
+    patient_name = st.text_input(
         "Nombre del paciente",
         value=source.get("patient_name", "Paciente simulado"),
         placeholder="Ejemplo: Paciente simulado 01",
     )
-    patient_id = admin_b.text_input(
+
+    age = st.number_input("Edad del paciente", min_value=0, max_value=120, value=int(source.get("age", 35)))
+
+    patient_gender = st.selectbox(
+        "Genero del paciente",
+        ["Femenino", "Masculino", "No binario", "Otro", "No informado"],
+        index=["Femenino", "Masculino", "No binario", "Otro", "No informado"].index(
+            source.get("patient_gender", source.get("sex", "No informado"))
+        )
+        if source.get("patient_gender", source.get("sex", "No informado"))
+        in ["Femenino", "Masculino", "No binario", "Otro", "No informado"]
+        else 4,
+    )
+
+    patient_id = st.text_input(
         "ID del paciente o muestra",
         value=source.get("patient_id", "BNX-0001"),
         placeholder="Ejemplo: BNX-0001",
     )
 
-    admin_c, admin_d, admin_e = st.columns([1, 1.2, 1.2])
-    age = admin_c.number_input("Edad del paciente", min_value=0, max_value=120, value=int(source.get("age", 35)))
-    lab_name = admin_d.text_input("Nombre del laboratorio", value=LAB_NAME)
-    bacteriologist_name = admin_e.text_input(
+    st.text_input("Fecha y hora automatica de expedicion", value=report_datetime, disabled=True)
+    field_note("La fecha y hora se generan automaticamente al cargar o actualizar la app.")
+
+    lab_name = st.text_input("Nombre del laboratorio", value=LAB_NAME)
+
+    bacteriologist_name = st.text_input(
         "Nombre del bacteriologo a cargo",
         value=source.get("bacteriologist_name", ""),
         placeholder="Nombre del profesional",
     )
 
-    st.text_input("Fecha y hora automatica de expedicion", value=report_datetime, disabled=True)
-    field_note("La fecha y hora se generan automaticamente al cargar o actualizar la app.")
-
-    step_title(2, "Datos clinicos del paciente")
-    col_b, col_c = st.columns([1, 2])
-    sex = col_b.selectbox(
-        "Sexo biologico reportado",
-        ["Femenino", "Masculino", "Intersexual", "No informado"],
-        index=["Femenino", "Masculino", "Intersexual", "No informado"].index(source.get("sex", "No informado"))
-        if source.get("sex", "No informado") in ["Femenino", "Masculino", "Intersexual", "No informado"]
-        else 3,
-    )
-    presumptive_diagnosis = col_c.text_input(
-        "Diagnostico presuntivo o pregunta de investigacion",
-        value=source.get("presumptive_diagnosis", ""),
-        placeholder="Ejemplo: sindrome inflamatorio en estudio",
-    )
-    field_note("Ejemplo: proceso inflamatorio cronico en evaluacion, sospecha metabolica o muestra tumoral simulada.")
-
+    step_title(2, "Sintomas del paciente")
     symptoms = st.text_area(
-        "Sintomas o hallazgos clinicos",
+        "Sintomas del paciente",
         value=join_items(source.get("symptoms", [])),
         placeholder="fatiga, fiebre, dolor articular",
     )
     field_note("Escribe sintomas separados por comas. Ejemplo: fatiga, fiebre, dolor articular.")
+
+    with st.expander("Contexto adicional opcional para orientar el panel"):
+        col_b, col_c = st.columns([1, 2])
+        sex = col_b.selectbox(
+            "Sexo biologico reportado",
+            ["Femenino", "Masculino", "Intersexual", "No informado"],
+            index=["Femenino", "Masculino", "Intersexual", "No informado"].index(
+                source.get("sex", patient_gender if patient_gender in ["Femenino", "Masculino"] else "No informado")
+            )
+            if source.get("sex", patient_gender if patient_gender in ["Femenino", "Masculino"] else "No informado")
+            in ["Femenino", "Masculino", "Intersexual", "No informado"]
+            else 3,
+        )
+        presumptive_diagnosis = col_c.text_input(
+            "Diagnostico presuntivo o pregunta de investigacion",
+            value=source.get("presumptive_diagnosis", ""),
+            placeholder="Ejemplo: sindrome inflamatorio en estudio",
+        )
+        field_note("Este contexto ayuda a recomendar marcadores, pero no se interpreta como diagnostico definitivo.")
 
     step_title(3, "Resultados de laboratorio")
     lab_results = st.text_area(
@@ -599,6 +615,7 @@ with st.form("case_form"):
 
 case = {
     "patient_name": patient_name,
+    "patient_gender": patient_gender,
     "patient_id": patient_id,
     "report_datetime": report_datetime,
     "lab_name": lab_name,
@@ -618,19 +635,6 @@ case = {
 if submitted or use_example:
     analysis = analyze_case(case)
     summary = analysis["summary"]
-
-    st.markdown('<div class="section-title">Resultados del analisis academico</div>', unsafe_allow_html=True)
-    executive_summary(summary, analysis)
-
-    m1, m2, m3, m4 = st.columns(4)
-    with m1:
-        metric_card("Riesgo academico", summary["risk"])
-    with m2:
-        metric_card("Nivel de confianza", summary["confidence"])
-    with m3:
-        metric_card("Biomarcadores", str(len(analysis["candidates"])))
-    with m4:
-        metric_card("Clasificacion", summary["molecular_class"])
 
     counts_df = pd.DataFrame(
         {
@@ -660,113 +664,133 @@ if submitted or use_example:
     candidates_df = pd.DataFrame(analysis["candidates"])
     pathway_df = pd.DataFrame(analysis["altered_pathways"])
 
-    tab_summary, tab_recommendations, tab_markers, tab_visuals, tab_report = st.tabs(
-        ["Panorama del caso", "Panel recomendado", "Biomarcadores", "Visualizaciones", "Reporte descargable"]
+    st.markdown('<div class="section-title">Informe BioNexus AI</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="small-title">Nombre del paciente</div>', unsafe_allow_html=True)
+    st.write(case["patient_name"] or "No informado")
+
+    st.markdown('<div class="small-title">Edad del paciente</div>', unsafe_allow_html=True)
+    st.write(f"{case['age']} anos")
+
+    st.markdown('<div class="small-title">Genero del paciente</div>', unsafe_allow_html=True)
+    st.write(case["patient_gender"] or "No informado")
+
+    st.markdown('<div class="small-title">ID del paciente o muestra</div>', unsafe_allow_html=True)
+    st.write(case["patient_id"] or "No informado")
+
+    st.markdown('<div class="small-title">Fecha y hora automatica de expedicion</div>', unsafe_allow_html=True)
+    st.write(case["report_datetime"])
+
+    st.markdown('<div class="small-title">Nombre del laboratorio</div>', unsafe_allow_html=True)
+    st.write(case["lab_name"] or LAB_NAME)
+
+    st.markdown('<div class="small-title">Nombre del bacteriologo a cargo</div>', unsafe_allow_html=True)
+    st.write(case["bacteriologist_name"] or "No informado")
+
+    st.markdown('<div class="small-title">Sintomas del paciente</div>', unsafe_allow_html=True)
+    st.write(", ".join(case["symptoms"]) or "No informado")
+
+    st.markdown('<div class="small-title">Resultados del laboratorio</div>', unsafe_allow_html=True)
+    st.write(", ".join(case["lab_results"]) or "No informado")
+
+    st.markdown('<div class="section-title">Panel sugerido por BioNexus AI</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="callout">Este panel se genera con reglas academicas basadas en sintomas, diagnostico presuntivo y resultados de laboratorio. No equivale a una orden clinica ni a una guia terapeutica real.</div>',
+        unsafe_allow_html=True,
+    )
+    st.dataframe(recommendation_df, width="stretch", hide_index=True)
+    profile_text = ", ".join(marker_recommendations["matched_profiles"])
+    st.write(f"**Perfiles detectados:** {profile_text}")
+
+    st.markdown('<div class="section-title">Datos omicos editables</div>', unsafe_allow_html=True)
+    omics_df = pd.DataFrame(
+        [
+            {"Tipo de dato": "Genomica", "Marcadores ingresados": ", ".join(case["genomic"]) or "No informado"},
+            {
+                "Tipo de dato": "Transcriptomica",
+                "Marcadores ingresados": ", ".join(case["transcriptomic"]) or "No informado",
+            },
+            {"Tipo de dato": "Proteomica", "Marcadores ingresados": ", ".join(case["proteomic"]) or "No informado"},
+            {
+                "Tipo de dato": "Metabolomica",
+                "Marcadores ingresados": ", ".join(case["metabolomic"]) or "No informado",
+            },
+        ]
+    )
+    st.dataframe(omics_df, width="stretch", hide_index=True)
+
+    st.markdown('<div class="section-title">Resultados del analisis academico</div>', unsafe_allow_html=True)
+    executive_summary(summary, analysis)
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        metric_card("Riesgo academico", summary["risk"])
+    with m2:
+        metric_card("Nivel de confianza", summary["confidence"])
+    with m3:
+        metric_card("Biomarcadores", str(len(analysis["candidates"])))
+    with m4:
+        metric_card("Clasificacion", summary["molecular_class"])
+
+    st.markdown('<div class="small-title">Interpretacion general</div>', unsafe_allow_html=True)
+    for item in analysis["interpretations"]:
+        st.write(f"- {item}")
+    st.markdown(
+        '<div class="callout">Las interpretaciones se expresan como posibles asociaciones. Requieren validacion experimental, bioinformatica y revision profesional.</div>',
+        unsafe_allow_html=True,
     )
 
-    with tab_summary:
-        left, right = st.columns([1.1, .9])
-        with left:
-            st.markdown('<div class="small-title">Interpretacion general</div>', unsafe_allow_html=True)
-            for item in analysis["interpretations"]:
-                st.write(f"- {item}")
-            st.markdown(
-                '<div class="callout">Las interpretaciones se expresan como posibles asociaciones. Requieren validacion experimental, bioinformatica y revision profesional.</div>',
-                unsafe_allow_html=True,
-            )
-        with right:
-            st.markdown('<div class="small-title">Rutas posiblemente alteradas</div>', unsafe_allow_html=True)
-            if pathway_df.empty:
-                st.info("No se identificaron rutas suficientes con las reglas actuales.")
-            else:
-                st.dataframe(pathway_df, use_container_width=True, hide_index=True)
+    st.markdown('<div class="small-title">Rutas posiblemente alteradas</div>', unsafe_allow_html=True)
+    if pathway_df.empty:
+        st.info("No se identificaron rutas suficientes con las reglas actuales.")
+    else:
+        st.dataframe(pathway_df, width="stretch", hide_index=True)
 
-        st.markdown('<div class="small-title">Datos ingresados al prototipo</div>', unsafe_allow_html=True)
-        input_df = pd.DataFrame(
-            [
-                {"Campo": "Nombre del paciente", "Valor": case["patient_name"] or "No informado"},
-                {"Campo": "ID", "Valor": case["patient_id"] or "No informado"},
-                {"Campo": "Fecha y hora de expedicion", "Valor": case["report_datetime"]},
-                {"Campo": "Laboratorio", "Valor": case["lab_name"] or LAB_NAME},
-                {"Campo": "Bacteriologo a cargo", "Valor": case["bacteriologist_name"] or "No informado"},
-                {"Campo": "Edad simulada", "Valor": str(case["age"])},
-                {"Campo": "Sexo biologico reportado", "Valor": case["sex"]},
-                {"Campo": "Diagnostico presuntivo", "Valor": case["presumptive_diagnosis"] or "No informado"},
-                {"Campo": "Sintomas o hallazgos", "Valor": ", ".join(case["symptoms"]) or "No informado"},
-                {"Campo": "Resultados del laboratorio", "Valor": ", ".join(case["lab_results"]) or "No informado"},
-            ]
-        )
-        st.dataframe(input_df, use_container_width=True, hide_index=True)
+    st.markdown('<div class="small-title">Tabla de biomarcadores candidatos</div>', unsafe_allow_html=True)
+    st.dataframe(candidates_df, width="stretch", hide_index=True)
 
-    with tab_recommendations:
-        st.markdown('<div class="small-title">Marcadores sugeridos por BioNexus AI</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="callout">Este panel se genera con reglas academicas basadas en palabras clave del diagnostico presuntivo, sintomas y laboratorio. No equivale a una orden clinica ni a una guia diagnostica real.</div>',
-            unsafe_allow_html=True,
-        )
-        st.dataframe(recommendation_df, use_container_width=True, hide_index=True)
+    category_df = (
+        candidates_df.groupby("Categoria", as_index=False)
+        .size()
+        .rename(columns={"size": "Numero de biomarcadores"})
+        .sort_values("Numero de biomarcadores", ascending=False)
+    )
+    st.markdown('<div class="small-title">Distribucion por categoria biologica</div>', unsafe_allow_html=True)
+    st.dataframe(category_df, width="stretch", hide_index=True)
 
-        profile_text = ", ".join(marker_recommendations["matched_profiles"])
-        st.write(f"**Perfiles detectados:** {profile_text}")
-        st.write(
-            "La recomendacion busca orientar que marcadores podrian explorarse para discutir inflamacion, proliferacion, metabolismo, reparacion de ADN u otros procesos simulados."
+    left, right = st.columns([.95, 1.05])
+    with left:
+        st.plotly_chart(bar_fig, width="stretch")
+    with right:
+        st.plotly_chart(
+            build_network_figure(analysis["candidates"], analysis["altered_pathways"]),
+            width="stretch",
         )
 
-    with tab_markers:
-        st.markdown('<div class="small-title">Tabla de biomarcadores candidatos</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="callout">Un biomarcador candidato no confirma enfermedad. En este prototipo indica una posible asociacion biologica para discusion academica.</div>',
-            unsafe_allow_html=True,
-        )
-        st.dataframe(candidates_df, use_container_width=True, hide_index=True)
+    st.markdown('<div class="section-title">Posible orientacion terapeutica academica</div>', unsafe_allow_html=True)
+    for item in analysis.get("treatment_orientation", []):
+        st.write(f"- {item}")
+    if not analysis.get("treatment_orientation"):
+        st.write("- Orientacion no disponible. Actualiza el archivo modules/analyzer.py en GitHub.")
+    st.warning(
+        "Esta orientacion no prescribe tratamientos, dosis ni conductas clinicas. Debe ser revisada por profesionales competentes."
+    )
 
-        category_df = (
-            candidates_df.groupby("Categoria", as_index=False)
-            .size()
-            .rename(columns={"size": "Numero de biomarcadores"})
-            .sort_values("Numero de biomarcadores", ascending=False)
-        )
-        st.markdown('<div class="small-title">Distribucion por categoria biologica</div>', unsafe_allow_html=True)
-        st.dataframe(category_df, use_container_width=True, hide_index=True)
+    st.markdown('<div class="section-title">Recomendaciones de seguimiento</div>', unsafe_allow_html=True)
+    for recommendation in analysis["recommendations"]:
+        st.write(f"- {recommendation}")
+    st.write("- Programar revision del caso con el equipo academico o profesional responsable.")
+    st.write("- Documentar cambios en sintomas, resultados de laboratorio y nuevos datos omicos antes de repetir el analisis.")
 
-    with tab_visuals:
-        left, right = st.columns([.95, 1.05])
-        with left:
-            st.plotly_chart(bar_fig, use_container_width=True)
-        with right:
-            st.plotly_chart(
-                build_network_figure(analysis["candidates"], analysis["altered_pathways"]),
-                use_container_width=True,
-            )
-
-    with tab_report:
-        st.markdown('<div class="small-title">Reporte final interpretativo</div>', unsafe_allow_html=True)
-        st.write(
-            f"El caso presenta una **{summary['molecular_class']}** con riesgo academico simulado "
-            f"**{summary['risk']}** y confianza **{summary['confidence']}**."
-        )
-        st.write("Este resultado sugiere posibles asociaciones y biomarcadores candidatos que requieren validacion.")
-        st.markdown("**Recomendaciones de analisis complementarios**")
-        for recommendation in analysis["recommendations"]:
-            st.write(f"- {recommendation}")
-        st.markdown("**Posible orientacion terapeutica academica**")
-        for item in analysis["treatment_orientation"]:
-            st.write(f"- {item}")
-        st.markdown("**Limitaciones**")
-        for limitation in analysis["limitations"]:
-            st.write(f"- {limitation}")
-        st.warning(
-            "Advertencia etica y academica: no reemplaza al medico, bacteriologo, bioinformatico ni investigador."
-        )
-
-        pdf_bytes = build_pdf(case, analysis)
-        st.download_button(
-            "Descargar reporte PDF",
-            data=pdf_bytes,
-            file_name="reporte_bionexus_ai.pdf",
-            mime="application/pdf",
-            type="primary",
-        )
+    st.markdown('<div class="section-title">Boton para descargar el informe completo en PDF</div>', unsafe_allow_html=True)
+    pdf_bytes = build_pdf(case, analysis)
+    st.download_button(
+        "Descargar informe completo",
+        data=pdf_bytes,
+        file_name="informe_bionexus_ai.pdf",
+        mime="application/pdf",
+        type="primary",
+    )
 
     with st.expander("Guion breve para explicar este resultado en una exposicion"):
         st.write(

@@ -61,6 +61,8 @@ def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
     admin_rows = [
         ["Campo", "Contenido"],
         ["Nombre del paciente", str(case.get("patient_name", "N/D")) or "N/D"],
+        ["Edad del paciente", f"{case.get('age', 'N/D')} anos"],
+        ["Genero del paciente", str(case.get("patient_gender", "N/D")) or "N/D"],
         ["ID", str(case.get("patient_id", "N/D")) or "N/D"],
         ["Fecha y hora de expedicion", str(case.get("report_datetime", "N/D")) or "N/D"],
         ["Laboratorio", str(case.get("lab_name", "BioNexus AI")) or "BioNexus AI"],
@@ -72,7 +74,7 @@ def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
         [
         Paragraph("Resumen del caso", heading),
         Paragraph(
-            f"Paciente/muestra simulada de {summary.get('age', 'N/D')} anos, sexo {summary.get('sex', 'N/D')}. "
+            f"Sexo reportado: {summary.get('sex', 'N/D')}. "
             f"Diagnostico presuntivo: {summary.get('presumptive_diagnosis', 'N/D')}. "
             f"Clasificacion molecular simulada: {summary.get('molecular_class')}. "
             f"Riesgo academico simulado: {summary.get('risk')}. Confianza: {summary.get('confidence')}.",
@@ -139,11 +141,15 @@ def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
     story.append(Paragraph("Interpretacion general", heading))
     story.extend(_paragraph_list(analysis["interpretations"], body))
 
-    story.append(Paragraph("Recomendaciones de analisis complementarios", heading))
-    story.extend(_paragraph_list(analysis["recommendations"], body))
-
     story.append(Paragraph("Posible orientacion terapeutica academica", heading))
     story.extend(_paragraph_list(analysis.get("treatment_orientation", []), body))
+
+    story.append(Paragraph("Recomendaciones de seguimiento", heading))
+    follow_up = list(analysis["recommendations"]) + [
+        "Programar revision del caso con el equipo academico o profesional responsable.",
+        "Documentar cambios en sintomas, resultados de laboratorio y nuevos datos omicos antes de repetir el analisis.",
+    ]
+    story.extend(_paragraph_list(follow_up, body))
 
     story.append(Paragraph("Limitaciones y advertencia etica", heading))
     story.extend(_paragraph_list(analysis["limitations"], body))
