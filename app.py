@@ -1600,4 +1600,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    _main_result = main()
+    _runner_code = compile("main()", "<bionexus-runner>", "exec")
+    _runner_result = exec(_runner_code)
