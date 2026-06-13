@@ -70,6 +70,18 @@ def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
     ]
     story.append(_styled_table(admin_rows))
 
+    story.append(Paragraph("Datos de muestra y fase preanalitica", heading))
+    sample_rows = [
+        ["Campo", "Contenido"],
+        ["Tipo de muestra", str(case.get("sample_type", "N/D"))],
+        ["Fecha de toma de muestra", str(case.get("collection_date", "N/D"))],
+        ["Fecha de recepcion", str(case.get("reception_date", "N/D"))],
+        ["Calidad de muestra", str(case.get("sample_quality", "N/D"))],
+        ["Metodo usado", str(case.get("method_used", "N/D"))],
+        ["Observaciones preanaliticas", str(case.get("preanalytical_observations", "N/D")) or "N/D"],
+    ]
+    story.append(_styled_table(sample_rows))
+
     story.extend(
         [
         Paragraph("Resumen del caso", heading),
@@ -88,6 +100,9 @@ def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
         ["Campo", "Contenido"],
         ["Sintomas", ", ".join(case.get("symptoms", [])) or "N/D"],
         ["Resultados del laboratorio", ", ".join(case.get("lab_results", [])) or "N/D"],
+        ["Valores de referencia", str(case.get("reference_values", "N/D")) or "N/D"],
+        ["Unidades", str(case.get("units", "N/D")) or "N/D"],
+        ["Estado del resultado", str(case.get("result_status", "N/D")) or "N/D"],
     ]
     story.append(_styled_table(input_rows))
 
@@ -103,15 +118,15 @@ def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
 
     if case.get("recommendation_rows"):
         story.append(Paragraph("Panel sugerido por BioNexus AI", heading))
-        recommendation_rows = [["Perfil", "Tipo", "Marcador", "Prioridad", "Justificacion"]]
+        recommendation_rows = [["Perfil", "Marcador", "Muestra", "Tecnica", "Validacion"]]
         for row in case["recommendation_rows"][:16]:
             recommendation_rows.append(
                 [
                     row["Perfil sugerido"],
-                    row["Tipo de dato"],
                     row["Marcador recomendado"],
-                    row["Prioridad"],
-                    row["Por que se recomienda"],
+                    row.get("Tipo de muestra recomendada", "N/D"),
+                    row.get("Tecnica sugerida", "N/D"),
+                    row.get("Profesional que debe validar", "N/D"),
                 ]
             )
         story.append(_styled_table(recommendation_rows, font_size=6))
@@ -140,6 +155,12 @@ def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
 
     story.append(Paragraph("Interpretacion general", heading))
     story.extend(_paragraph_list(analysis["interpretations"], body))
+
+    story.append(Paragraph("Hipotesis diagnostica", heading))
+    story.extend(_paragraph_list(analysis.get("diagnostic_hypothesis", []), body))
+
+    story.append(Paragraph("Nivel de alerta", heading))
+    story.append(Paragraph(str(summary.get("alert", "N/D")), body))
 
     story.append(Paragraph("Posible orientacion terapeutica academica", heading))
     story.extend(_paragraph_list(analysis.get("treatment_orientation", []), body))

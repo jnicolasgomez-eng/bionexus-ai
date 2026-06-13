@@ -236,6 +236,16 @@ def render_styles() -> None:
             font-weight: 800;
             margin: .35rem 0 .25rem 0;
         }
+        .support-badge {
+            background: #ecfeff;
+            border: 1px solid #67e8f9;
+            color: #155e75;
+            border-radius: 999px;
+            display: inline-block;
+            font-weight: 800;
+            padding: .28rem .7rem;
+            margin-bottom: .6rem;
+        }
         .section-title {
             color: #155e75;
             font-weight: 800;
@@ -379,6 +389,20 @@ def fallback_treatment_orientation(analysis: dict) -> list[str]:
     return suggestions
 
 
+def clinical_support_notice() -> None:
+    st.markdown(
+        """
+        <div class="callout">
+        <span class="support-badge">Apoyo interpretativo supervisado</span><br>
+        BioNexus AI organiza datos clinicos, preanaliticos, laboratoriales y multi-omicos para apoyar
+        la interpretacion del bacteriologo/laboratorista clinico. El informe debe ser revisado,
+        validado y liberado por el profesional responsable y correlacionado con el medico tratante.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def build_network_figure(candidates: list[dict], pathways: list[dict]) -> go.Figure:
     """Dibuja una red sencilla entre biomarcadores candidatos y rutas."""
 
@@ -483,7 +507,7 @@ st.markdown(
         <p>Informe academico de apoyo diagnostico y terapeutico basado en integracion multi-omica.</p>
         <p><strong>Genomica | Transcriptomica | Proteomica | Metabolomica | Datos clinicos</strong></p>
     </div>
-    <div class="warning">Uso educativo e investigativo. No constituye diagnostico medico ni indicacion terapeutica real.</div>
+    <div class="warning">Herramienta de apoyo interpretativo laboratorial. Requiere validacion y liberacion por bacteriologo/laboratorista clinico responsable.</div>
     """,
     unsafe_allow_html=True,
 )
@@ -494,7 +518,7 @@ st.markdown(
     """
     + guide_card(
         "Que vas a ingresar",
-        "Datos administrativos, sintomas, laboratorio y marcadores omicos simulados o anonimizados.",
+        "Datos administrativos, muestra, fase preanalitica, sintomas, laboratorio y marcadores omicos.",
     )
     + guide_card(
         "Como escribirlos",
@@ -502,7 +526,7 @@ st.markdown(
     )
     + guide_card(
         "Que entrega el sistema",
-        "Panel recomendado, rutas posiblemente alteradas, orientacion terapeutica academica y reporte PDF.",
+        "Panel recomendado, alertas, hipotesis diagnostica, orientacion supervisada y reporte PDF.",
     )
     + """
     </div>
@@ -511,6 +535,7 @@ st.markdown(
 )
 
 st.markdown('<div class="section-title">Formulario guiado de ingreso de datos</div>', unsafe_allow_html=True)
+clinical_support_notice()
 
 with st.form("case_form"):
     step_title(1, "Datos administrativos del informe")
@@ -554,7 +579,44 @@ with st.form("case_form"):
         placeholder="Nombre del profesional",
     )
 
-    step_title(2, "Sintomas del paciente")
+    step_title(2, "Datos de muestra y fase preanalitica")
+    sample_a, sample_b = st.columns(2)
+    sample_type = sample_a.selectbox(
+        "Tipo de muestra",
+        ["Sangre", "Suero", "Plasma", "Tejido", "Orina", "Hisopado", "Otro"],
+    )
+    sample_quality = sample_b.selectbox(
+        "Calidad de muestra",
+        ["Adecuada", "Hemolizada", "Lipemica", "Insuficiente"],
+    )
+    sample_c, sample_d = st.columns(2)
+    collection_date = sample_c.date_input("Fecha de toma de muestra")
+    reception_date = sample_d.date_input("Fecha de recepcion")
+    method_used = st.selectbox(
+        "Metodo usado",
+        ["PCR", "qPCR", "ELISA", "Secuenciacion", "Espectrometria", "Inmunoensayo", "Otro"],
+    )
+    preanalytical_observations = st.text_area(
+        "Observaciones preanaliticas",
+        placeholder="Ejemplo: muestra recibida en cadena de frio, volumen adecuado, leve hemolisis",
+    )
+
+    step_title(3, "Resultados del laboratorio")
+    lab_results = st.text_area(
+        "Resultados del laboratorio",
+        value=join_items(source.get("lab_results", [])),
+        placeholder="PCR elevada, VSG elevada, LDH elevada",
+    )
+    lab_a, lab_b, lab_c = st.columns([1.2, 1, 1])
+    reference_values = lab_a.text_input(
+        "Valores de referencia",
+        placeholder="Ejemplo: PCR < 5 mg/L; lactato 0.5-2.2 mmol/L",
+    )
+    units = lab_b.text_input("Unidades", placeholder="mg/L, mmol/L, copias/mL")
+    result_status = lab_c.selectbox("Resultado", ["Normal", "Anormal", "Critico"])
+    field_note("Estos datos permiten reglas por rango, metodo, estado del resultado y calidad de muestra.")
+
+    step_title(4, "Sintomas del paciente")
     symptoms = st.text_area(
         "Sintomas del paciente",
         value=join_items(source.get("symptoms", [])),
@@ -581,14 +643,6 @@ with st.form("case_form"):
         )
         field_note("Este contexto ayuda a recomendar marcadores, pero no se interpreta como diagnostico definitivo.")
 
-    step_title(3, "Resultados de laboratorio")
-    lab_results = st.text_area(
-        "Laboratorio clinico o experimental",
-        value=join_items(source.get("lab_results", [])),
-        placeholder="PCR elevada, VSG elevada, LDH elevada",
-    )
-    field_note("Ejemplo: PCR elevada, VSG elevada, LDH elevada. Estos datos ayudan a sugerir marcadores, pero no generan diagnostico.")
-
     preliminary_case = {
         "presumptive_diagnosis": presumptive_diagnosis,
         "symptoms": parse_items(symptoms),
@@ -597,7 +651,7 @@ with st.form("case_form"):
     marker_recommendations = recommend_marker_panel(preliminary_case)
     recommended_markers = marker_recommendations["recommended_markers"]
 
-    step_title(4, "Panel sugerido por BioNexus AI")
+    step_title(5, "Panel sugerido por BioNexus AI")
     st.markdown(
         '<div class="mini-note">Segun el contexto clinico simulado, la app recomienda marcadores candidatos y explica por que pueden ser utiles para una exploracion academica. Puedes aceptar el panel o editarlo.</div>',
         unsafe_allow_html=True,
@@ -618,7 +672,7 @@ with st.form("case_form"):
         recommended_markers["metabolomic"] if use_recommended_panel else source.get("metabolomic", [])
     )
 
-    step_title(5, "Datos omicos editables")
+    step_title(6, "Datos omicos editables")
     st.markdown(
         '<div class="mini-note">Estos campos se llenan con la recomendacion automatica. El bacteriologo, bioinformatico o estudiante puede modificar, agregar o retirar marcadores antes de analizar.</div>',
         unsafe_allow_html=True,
@@ -661,6 +715,15 @@ case = {
     "report_datetime": report_datetime,
     "lab_name": lab_name,
     "bacteriologist_name": bacteriologist_name,
+    "sample_type": sample_type,
+    "collection_date": str(collection_date),
+    "reception_date": str(reception_date),
+    "sample_quality": sample_quality,
+    "method_used": method_used,
+    "reference_values": reference_values,
+    "units": units,
+    "result_status": result_status,
+    "preanalytical_observations": preanalytical_observations,
     "age": age,
     "sex": sex,
     "presumptive_diagnosis": presumptive_diagnosis,
@@ -730,11 +793,38 @@ if submitted or use_example:
     st.markdown('<div class="small-title">Nombre del bacteriologo a cargo</div>', unsafe_allow_html=True)
     st.write(case["bacteriologist_name"] or "No informado")
 
+    st.markdown('<div class="small-title">Tipo de muestra</div>', unsafe_allow_html=True)
+    st.write(case["sample_type"])
+
+    st.markdown('<div class="small-title">Fecha de toma de muestra</div>', unsafe_allow_html=True)
+    st.write(case["collection_date"])
+
+    st.markdown('<div class="small-title">Fecha de recepcion</div>', unsafe_allow_html=True)
+    st.write(case["reception_date"])
+
+    st.markdown('<div class="small-title">Calidad de muestra</div>', unsafe_allow_html=True)
+    st.write(case["sample_quality"])
+
+    st.markdown('<div class="small-title">Metodo usado</div>', unsafe_allow_html=True)
+    st.write(case["method_used"])
+
     st.markdown('<div class="small-title">Sintomas del paciente</div>', unsafe_allow_html=True)
     st.write(", ".join(case["symptoms"]) or "No informado")
 
     st.markdown('<div class="small-title">Resultados del laboratorio</div>', unsafe_allow_html=True)
     st.write(", ".join(case["lab_results"]) or "No informado")
+
+    st.markdown('<div class="small-title">Valores de referencia</div>', unsafe_allow_html=True)
+    st.write(case["reference_values"] or "No informado")
+
+    st.markdown('<div class="small-title">Unidades</div>', unsafe_allow_html=True)
+    st.write(case["units"] or "No informado")
+
+    st.markdown('<div class="small-title">Resultado normal/anormal/critico</div>', unsafe_allow_html=True)
+    st.write(case["result_status"])
+
+    st.markdown('<div class="small-title">Observaciones preanaliticas</div>', unsafe_allow_html=True)
+    st.write(case["preanalytical_observations"] or "Sin observaciones")
 
     st.markdown('<div class="section-title">Panel sugerido por BioNexus AI</div>', unsafe_allow_html=True)
     st.markdown(
@@ -775,6 +865,9 @@ if submitted or use_example:
     with m4:
         metric_card("Clasificacion", summary["molecular_class"])
 
+    st.markdown('<div class="small-title">Nivel de alerta</div>', unsafe_allow_html=True)
+    st.write(summary.get("alert", "No informado"))
+
     st.markdown('<div class="small-title">Interpretacion general</div>', unsafe_allow_html=True)
     for item in analysis["interpretations"]:
         st.write(f"- {item}")
@@ -782,6 +875,10 @@ if submitted or use_example:
         '<div class="callout">Las interpretaciones se expresan como posibles asociaciones. Requieren validacion experimental, bioinformatica y revision profesional.</div>',
         unsafe_allow_html=True,
     )
+
+    st.markdown('<div class="small-title">Hipotesis diagnostica</div>', unsafe_allow_html=True)
+    for item in analysis.get("diagnostic_hypothesis", []):
+        st.write(f"- {item}")
 
     st.markdown('<div class="small-title">Rutas posiblemente alteradas</div>', unsafe_allow_html=True)
     if pathway_df.empty:
