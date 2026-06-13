@@ -1507,13 +1507,14 @@ def laboratory_qc_view() -> None:
         "decision": decision,
         "planned_tests": ", ".join(planned_tests),
     }
-    st.download_button(
+    _ = st.download_button(
         "Descargar reporte tecnico de control de calidad",
         data=qc_text_report(qc_payload).encode("utf-8"),
         file_name="control_calidad_bionexus.txt",
         mime="text/plain",
         type="primary",
     )
+    return None
 
 
 def safety_view() -> None:
@@ -1582,16 +1583,16 @@ intake_tab, follow_tab, dashboard_tab, lab_tab, safety_tab = st.tabs(
 )
 with intake_tab:
     if require_module_password("ingreso", "Ingreso del paciente"):
-        chat_intake_view()
+        _ = chat_intake_view()
 with follow_tab:
     if require_module_password("seguimiento", "Seguimiento por ID"):
-        follow_up_view()
+        _ = follow_up_view()
 with dashboard_tab:
     if require_module_password("resumen", "Resumen de pacientes"):
-        dashboard_view()
+        _ = dashboard_view()
 with lab_tab:
     if require_module_password("laboratorio", "Laboratorio y control de calidad"):
-        laboratory_qc_view()
+        _ = laboratory_qc_view()
 with safety_tab:
     if require_module_password("seguridad", "Validacion y seguridad"):
-        safety_view()
+        _ = safety_view()
