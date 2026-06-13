@@ -300,6 +300,25 @@ def render_styles() -> None:
             border-radius: 10px;
             overflow: hidden;
         }
+        div[data-testid="stChatMessage"] {
+            background: #ffffff;
+            border: 1px solid #a7f3d0;
+            border-radius: 16px;
+            box-shadow: 0 10px 26px rgba(15, 23, 42, .08);
+            margin: .8rem 0;
+        }
+        div[data-testid="stChatMessage"] *,
+        div[data-testid="stChatMessageContent"] *,
+        div[data-testid="stMarkdownContainer"] p,
+        div[data-testid="stMarkdownContainer"] li {
+            color: #0f172a;
+        }
+        div[data-testid="stChatMessage"] strong {
+            color: #0f766e;
+        }
+        div[data-testid="stTabs"] button {
+            font-weight: 850;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -428,12 +447,45 @@ def clinical_flags(case: dict) -> list[dict]:
     return flags
 
 
+def extra_clinical_flags(case: dict) -> list[dict]:
+    """Complementa reglas para sintomas frecuentes escritos en lenguaje natural."""
+    text = " ".join(
+        [
+            str(case.get("presumptive_diagnosis", "")),
+            " ".join(case.get("symptoms", [])),
+            " ".join(case.get("lab_results", [])),
+        ]
+    ).lower()
+    flags = []
+
+    def has_any(words: list[str]) -> bool:
+        return any(word in text for word in words)
+
+    if has_any(["mareo", "mareos", "vision borrosa", "cefalea", "cefaleas", "dolor de cabeza"]):
+        flags.append(
+            {
+                "area": "Neurologica/metabolica",
+                "priority": "Moderada",
+                "reason": "mareo, cefalea o vision borrosa requieren correlacion con glucosa, hemograma y electrolitos.",
+            }
+        )
+    if has_any(["mialgia", "mialgias", "dolor muscular", "dolores musculares"]):
+        flags.append(
+            {
+                "area": "Inflamatoria/muscular",
+                "priority": "Baja a moderada",
+                "reason": "las mialgias pueden acompanar infeccion, inflamacion o alteracion muscular y deben correlacionarse con laboratorio.",
+            }
+        )
+    return flags
+
+
 def build_ai_summary(case: dict, analysis: dict, evidence_rows: list[dict]) -> list[str]:
     profiles = ", ".join(row["profile"] for row in evidence_rows)
     summary = analysis["summary"]
     patient_name = case.get("patient_name") or "el paciente"
     symptoms = ", ".join(case.get("symptoms", [])) or "no se registraron sintomas especificos"
-    flags = clinical_flags(case)
+    flags = clinical_flags(case) + extra_clinical_flags(case)
     lines = [
         f"Recibi el caso de {patient_name} con ID {case.get('patient_id', 'no informado')}. Sintomas registrados: {symptoms}.",
         f"Con los datos actuales, los perfiles mas relacionados son: {profiles}.",
@@ -490,14 +542,21 @@ def recommended_lab_tests(case: dict, marker_recommendations: dict, evidence_row
     if "Molecular/genetico" in profiles:
         add("Panel genetico validado", "Sangre/saliva/tejido", "Secuenciacion/qPCR", "Prioriza genes candidatos y requiere consentimiento/validacion.")
 
-    for flag in clinical_flags(case):
+    for flag in clinical_flags(case) + extra_clinical_flags(case):
         if flag["area"] == "Neurologica/urgencia":
             add("Glucosa inmediata", "Sangre capilar/suero", "Quimica clinica o glucometria validada", "Ayuda a descartar alteracion glucemica en sintomas neurologicos.")
             add("Electrolitos", "Suero o plasma", "Quimica clinica", "Sodio, potasio y cloro pueden explicar compromiso neurologico o debilidad.")
             add("Gasometria y lactato", "Sangre arterial o venosa", "Gasometria", "Apoya evaluacion de oxigenacion, perfusion y estado acido-base.")
+        if flag["area"] == "Neurologica/metabolica":
+            add("Glucosa", "Suero o plasma", "Quimica clinica", "Correlaciona mareo, vision borrosa o cefalea con alteraciones glucemicas.")
+            add("Electrolitos", "Suero o plasma", "Quimica clinica", "Apoya correlacion de sintomas neurologicos inespecificos con balance hidroelectrolitico.")
+            add("Hemograma con diferencial", "Sangre total", "Hematologia automatizada", "Evalua anemia, infeccion o inflamacion asociada a fatiga, mareo o cefalea.")
         if flag["area"] == "Respiratoria/infecciosa":
             add("Saturacion de oxigeno y gases si aplica", "Dato clinico/sangre", "Oximetria/gasometria", "Correlaciona sintomas respiratorios con oxigenacion.")
             add("Panel respiratorio molecular segun disponibilidad", "Hisopado nasofaringeo", "PCR/qPCR", "Busca agentes respiratorios cuando el contexto lo justifique.")
+        if flag["area"] == "Inflamatoria/muscular":
+            add("CK total", "Suero", "Quimica clinica", "Apoya evaluacion de compromiso muscular cuando predominan mialgias.")
+            add("Perfil renal", "Suero/plasma", "Quimica clinica", "Permite vigilar funcion renal si hay mialgias intensas, deshidratacion o sospecha sistemica.")
         if flag["area"] == "Hematologica/metabolica":
             add("Ferritina y perfil de hierro", "Suero", "Quimica clinica/inmunoensayo", "Apoya evaluacion de fatiga, palidez o posible anemia/inflamacion.")
             add("Perfil metabolico basico", "Suero o plasma", "Quimica clinica", "Evalua glucosa, funcion renal y electrolitos para correlacion inicial.")
@@ -612,6 +671,14 @@ def enrich_case(case: dict) -> tuple[dict, dict, pd.DataFrame, list[dict], list[
     return analysis, marker_recommendations, exams_df, evidence_rows, ai_summary
 
 
+def build_report_pdf(case: dict, analysis: dict, report_type: str) -> bytes:
+    """Genera PDF y evita que la app se rompa si el modulo de reportes esta desactualizado."""
+    try:
+        return build_pdf(case, analysis, report_type=report_type)
+    except TypeError:
+        return build_pdf(case, analysis)
+
+
 def show_ai_response(case: dict, analysis: dict, exams_df: pd.DataFrame, evidence_rows: list[dict], ai_summary: list[str]) -> None:
     with st.chat_message("user"):
         st.markdown(
@@ -644,8 +711,8 @@ def show_ai_response(case: dict, analysis: dict, exams_df: pd.DataFrame, evidenc
     )
 
     st.markdown('<div class="section-title">Descarga preliminar</div>', unsafe_allow_html=True)
-    patient_pdf = build_pdf(case, analysis, report_type="patient")
-    technical_pdf = build_pdf(case, analysis, report_type="technical")
+    patient_pdf = build_report_pdf(case, analysis, report_type="patient")
+    technical_pdf = build_report_pdf(case, analysis, report_type="technical")
     p1, p2 = st.columns(2)
     with p1:
         st.download_button(
@@ -692,8 +759,8 @@ def show_interpretation(case: dict) -> None:
     st.plotly_chart(build_bar_figure(analysis), width="stretch")
 
     st.markdown('<div class="section-title">Descarga de informes</div>', unsafe_allow_html=True)
-    patient_pdf = build_pdf(case, analysis, report_type="patient")
-    technical_pdf = build_pdf(case, analysis, report_type="technical")
+    patient_pdf = build_report_pdf(case, analysis, report_type="patient")
+    technical_pdf = build_report_pdf(case, analysis, report_type="technical")
     d1, d2 = st.columns(2)
     with d1:
         st.download_button(
@@ -759,7 +826,7 @@ def chat_intake_view() -> None:
             st.error("Debes ingresar un ID para guardar y recuperar el caso.")
             return
         intake = {
-            "workflow_status": "Ingreso inicial: examenes sugeridos",
+            "workflow_status": "Pendiente por traer resultados de laboratorio",
             "patient_name": patient_name,
             "age": age,
             "patient_gender": patient_gender,
@@ -823,6 +890,15 @@ def follow_up_view() -> None:
         reference_values = c3.text_input("Valores de referencia", placeholder="PCR < 5 mg/L")
         units = c4.text_input("Unidades", placeholder="mg/L")
         result_status = c5.selectbox("Resultado", ["Normal", "Anormal", "Critico"])
+        workflow_status = st.selectbox(
+            "Estado del caso",
+            [
+                "Resultados cargados: pendiente liberacion",
+                "Seguimiento activo",
+                "Caso resuelto / seguimiento cerrado",
+                "Requiere revision prioritaria",
+            ],
+        )
         preanalytical_observations = st.text_area("Observaciones preanaliticas")
         st.markdown('<div class="small-title">Datos omicos si estan disponibles</div>', unsafe_allow_html=True)
         genomic = st.text_area("Genomica", value=", ".join(record.get("genomic", [])))
@@ -835,7 +911,7 @@ def follow_up_view() -> None:
         intake = {**record}
         intake.update(
             {
-                "workflow_status": "Resultados cargados: pendiente liberacion",
+                "workflow_status": workflow_status,
                 "sample_type": sample_type,
                 "sample_quality": sample_quality,
                 "collection_date": str(collection_date),
@@ -858,6 +934,42 @@ def follow_up_view() -> None:
         show_interpretation(case)
 
 
+def dashboard_view() -> None:
+    st.markdown('<div class="section-title">Resumen de pacientes</div>', unsafe_allow_html=True)
+    saved_df = list_patient_records()
+    if saved_df.empty:
+        st.info("Aun no hay pacientes guardados. Cuando ingreses pacientes, apareceran aqui.")
+        return
+
+    pending = saved_df[saved_df["Estado"].str.contains("Ingreso inicial|pendiente|Pendiente", case=False, na=False)]
+    loaded = saved_df[saved_df["Estado"].str.contains("Resultados cargados|Seguimiento activo", case=False, na=False)]
+    resolved = saved_df[saved_df["Estado"].str.contains("resuelto|cerrado", case=False, na=False)]
+    priority = saved_df[saved_df["Estado"].str.contains("prioritaria|Critico|critico", case=False, na=False)]
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        metric_card("Total de pacientes", str(len(saved_df)))
+    with c2:
+        metric_card("Faltan resultados", str(len(pending)))
+    with c3:
+        metric_card("En seguimiento", str(len(loaded)))
+    with c4:
+        metric_card("Resueltos", str(len(resolved)))
+
+    if not priority.empty:
+        st.warning("Hay casos marcados para revision prioritaria.")
+        st.dataframe(priority, width="stretch", hide_index=True)
+
+    st.markdown('<div class="small-title">Pacientes que faltan por traer resultados de laboratorio</div>', unsafe_allow_html=True)
+    st.dataframe(pending if not pending.empty else pd.DataFrame(columns=saved_df.columns), width="stretch", hide_index=True)
+
+    st.markdown('<div class="small-title">Pacientes en seguimiento o con resultados cargados</div>', unsafe_allow_html=True)
+    st.dataframe(loaded if not loaded.empty else pd.DataFrame(columns=saved_df.columns), width="stretch", hide_index=True)
+
+    st.markdown('<div class="small-title">Casos resueltos o cerrados</div>', unsafe_allow_html=True)
+    st.dataframe(resolved if not resolved.empty else pd.DataFrame(columns=saved_df.columns), width="stretch", hide_index=True)
+
+
 def safety_view() -> None:
     st.markdown('<div class="section-title">Seguridad, trazabilidad y siguiente fase</div>', unsafe_allow_html=True)
     st.write("- Esta version guarda datos en SQLite local de la app. En Streamlit Cloud puede ser persistencia temporal.")
@@ -871,10 +983,14 @@ init_db()
 render_styles()
 hero()
 
-main_tab, follow_tab, safety_tab = st.tabs(["Charla con BioNexus AI", "Seguimiento / datos guardados", "Seguridad y validacion"])
-with main_tab:
+intake_tab, follow_tab, dashboard_tab, safety_tab = st.tabs(
+    ["Ingreso del paciente", "Seguimiento por ID", "Resumen de pacientes", "Validacion y seguridad"]
+)
+with intake_tab:
     chat_intake_view()
 with follow_tab:
     follow_up_view()
+with dashboard_tab:
+    dashboard_view()
 with safety_tab:
     safety_view()
