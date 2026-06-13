@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from modules.analyzer import analyze_case, parse_items, recommend_marker_panel
+from modules.knowledge_base import build_ai_interpretive_summary, retrieve_curated_evidence
 from modules.report import build_pdf
 
 
@@ -740,6 +741,10 @@ if submitted or use_example:
     analysis = analyze_case(case)
     if not analysis.get("treatment_orientation"):
         analysis["treatment_orientation"] = fallback_treatment_orientation(analysis)
+    evidence_rows = retrieve_curated_evidence(case, analysis)
+    ai_summary = build_ai_interpretive_summary(case, analysis, evidence_rows)
+    case["evidence_rows"] = evidence_rows
+    case["ai_summary"] = ai_summary
     summary = analysis["summary"]
 
     counts_df = pd.DataFrame(
@@ -834,6 +839,20 @@ if submitted or use_example:
     st.dataframe(recommendation_df, width="stretch", hide_index=True)
     profile_text = ", ".join(marker_recommendations["matched_profiles"])
     st.write(f"**Perfiles detectados:** {profile_text}")
+
+    st.markdown('<div class="section-title">IA con base de conocimiento curada</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="callout">Esta capa simula un motor RAG clinico seguro: recupera evidencia desde una base curada y versionable, no desde internet abierto. En una fase real, estas fuentes se sincronizarian con repositorios oficiales y guias institucionales.</div>',
+        unsafe_allow_html=True,
+    )
+    for item in ai_summary:
+        st.write(f"- {item}")
+    evidence_df = pd.DataFrame(evidence_rows)
+    st.dataframe(
+        evidence_df[["profile", "clinical_use", "markers", "limitations", "source", "source_url"]],
+        width="stretch",
+        hide_index=True,
+    )
 
     st.markdown('<div class="section-title">Datos omicos editables</div>', unsafe_allow_html=True)
     omics_df = pd.DataFrame(

@@ -131,6 +131,21 @@ def build_pdf(case: Dict[str, object], analysis: Dict[str, object]) -> bytes:
             )
         story.append(_styled_table(recommendation_rows, font_size=6))
 
+    if case.get("ai_summary") or case.get("evidence_rows"):
+        story.append(Paragraph("IA con base de conocimiento curada", heading))
+        story.extend(_paragraph_list(case.get("ai_summary", []), body))
+        evidence_rows = [["Perfil", "Uso clinico", "Marcadores", "Fuente"]]
+        for row in case.get("evidence_rows", [])[:6]:
+            evidence_rows.append(
+                [
+                    row.get("profile", "N/D"),
+                    row.get("clinical_use", "N/D"),
+                    row.get("markers", "N/D"),
+                    row.get("source", "N/D"),
+                ]
+            )
+        story.append(_styled_table(evidence_rows, font_size=6))
+
     story.append(Paragraph("Biomarcadores candidatos", heading))
     candidate_rows = [["Tipo", "Biomarcador", "Categoria", "Ruta asociada"]]
     for row in analysis["candidates"][:12]:
