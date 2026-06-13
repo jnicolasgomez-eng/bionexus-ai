@@ -1574,25 +1574,30 @@ def safety_view() -> None:
         st.text(standards_traceability_text())
 
 
-init_db()
-render_styles()
-hero()
+def main() -> None:
+    init_db()
+    render_styles()
+    hero()
 
-intake_tab, follow_tab, dashboard_tab, lab_tab, safety_tab = st.tabs(
-    ["Ingreso del paciente", "Seguimiento por ID", "Resumen de pacientes", "Laboratorio y QC", "Validacion y seguridad"]
-)
-with intake_tab:
-    if require_module_password("ingreso", "Ingreso del paciente"):
-        _ = chat_intake_view()
-with follow_tab:
-    if require_module_password("seguimiento", "Seguimiento por ID"):
-        _ = follow_up_view()
-with dashboard_tab:
-    if require_module_password("resumen", "Resumen de pacientes"):
-        _ = dashboard_view()
-with lab_tab:
-    if require_module_password("laboratorio", "Laboratorio y control de calidad"):
-        _ = laboratory_qc_view()
-with safety_tab:
-    if require_module_password("seguridad", "Validacion y seguridad"):
-        _ = safety_view()
+    intake_tab, follow_tab, dashboard_tab, lab_tab, safety_tab = st.tabs(
+        ["Ingreso del paciente", "Seguimiento por ID", "Resumen de pacientes", "Laboratorio y QC", "Validacion y seguridad"]
+    )
+    with intake_tab:
+        if require_module_password("ingreso", "Ingreso del paciente"):
+            chat_intake_view()
+    with follow_tab:
+        if require_module_password("seguimiento", "Seguimiento por ID"):
+            follow_up_view()
+    with dashboard_tab:
+        if require_module_password("resumen", "Resumen de pacientes"):
+            dashboard_view()
+    with lab_tab:
+        if require_module_password("laboratorio", "Laboratorio y control de calidad"):
+            laboratory_qc_view()
+    with safety_tab:
+        if require_module_password("seguridad", "Validacion y seguridad"):
+            safety_view()
+
+
+if __name__ == "__main__":
+    main()
