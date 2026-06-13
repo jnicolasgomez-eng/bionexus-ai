@@ -555,14 +555,25 @@ def show_interpretation(case: dict) -> None:
     st.dataframe(pd.DataFrame(analysis["candidates"]), width="stretch", hide_index=True)
     st.plotly_chart(build_bar_figure(analysis), width="stretch")
 
-    pdf_bytes = build_pdf(case, analysis)
-    st.download_button(
-        "Descargar informe completo para revision y liberacion",
-        data=pdf_bytes,
-        file_name=f"informe_bionexus_{case['patient_id']}.pdf",
-        mime="application/pdf",
-        type="primary",
-    )
+    st.markdown('<div class="section-title">Descarga de informes</div>', unsafe_allow_html=True)
+    patient_pdf = build_pdf(case, analysis, report_type="patient")
+    technical_pdf = build_pdf(case, analysis, report_type="technical")
+    d1, d2 = st.columns(2)
+    with d1:
+        st.download_button(
+            "Informe de laboratorio del paciente",
+            data=patient_pdf,
+            file_name=f"informe_paciente_{case['patient_id']}.pdf",
+            mime="application/pdf",
+            type="primary",
+        )
+    with d2:
+        st.download_button(
+            "Informe tecnico con justificaciones y bases",
+            data=technical_pdf,
+            file_name=f"informe_tecnico_bionexus_{case['patient_id']}.pdf",
+            mime="application/pdf",
+        )
 
 
 def chat_intake_view() -> None:
