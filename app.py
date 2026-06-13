@@ -27,6 +27,27 @@ DB_PATH = APP_DIR / "bionexus_patients.db"
 LAB_NAME = "BioNexus AI"
 REPORT_TZ = ZoneInfo("America/Bogota")
 APP_VERSION = "BioNexus AI Lab Support v0.4"
+MODULE_PASSWORDS = {
+    "ingreso": "ingreso123",
+    "seguimiento": "seguimiento123",
+    "resumen": "resumen123",
+    "seguridad": "seguridad123",
+}
+HOSPITAL_AREAS = [
+    "Urgencias",
+    "Hospitalizacion",
+    "Consulta externa",
+    "UCI",
+    "Pediatria",
+    "Ginecologia/obstetricia",
+    "Medicina interna",
+    "Cirugia",
+    "Oncologia",
+    "Infectologia",
+    "Salud mental",
+    "Laboratorio clinico",
+    "Otro",
+]
 
 
 CURATED_KNOWLEDGE = [
@@ -129,12 +150,28 @@ def list_patient_records() -> pd.DataFrame:
             {
                 "ID": patient_id,
                 "Paciente": item.get("patient_name", "No informado"),
+                "Area": item.get("hospital_area", "No informado"),
                 "Estado": item.get("workflow_status", "Ingreso inicial"),
+                "Resultado": item.get("result_status", "Pendiente"),
                 "Creado": created_at,
                 "Actualizado": updated_at,
             }
         )
     return pd.DataFrame(data)
+
+
+def require_module_password(module_key: str, title: str) -> bool:
+    st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
+    expected = MODULE_PASSWORDS[module_key]
+    typed = st.text_input(f"Contraseña para {title}", type="password", key=f"pass_{module_key}")
+    if typed == expected:
+        st.success("Acceso autorizado.")
+        return True
+    if typed:
+        st.error("Contraseña incorrecta.")
+    else:
+        st.info("Ingresa la contraseña del módulo para continuar.")
+    return False
 
 
 def render_styles() -> None:
@@ -508,6 +545,7 @@ def build_ai_summary(case: dict, analysis: dict, evidence_rows: list[dict]) -> l
 def recommended_lab_tests(case: dict, marker_recommendations: dict, evidence_rows: list[dict]) -> pd.DataFrame:
     profiles = {row["profile"] for row in evidence_rows}
     lab_text = " ".join(case.get("symptoms", []) + case.get("lab_results", [])).lower()
+    hospital_area = str(case.get("hospital_area", "")).lower()
     rows = []
     seen_tests = set()
 
@@ -524,6 +562,26 @@ def recommended_lab_tests(case: dict, marker_recommendations: dict, evidence_row
                 "Validacion": validator,
             }
         )
+
+    if "urgencias" in hospital_area or "uci" in hospital_area:
+        add("Hemograma con diferencial", "Sangre total", "Hematologia automatizada", "Tamizaje inicial de anemia, infeccion, inflamacion o compromiso sistemico.")
+        add("Gases y lactato", "Sangre arterial o venosa", "Gasometria", "Apoya decisiones de prioridad por perfusion, oxigenacion y estado acido-base.")
+        add("Electrolitos y funcion renal", "Suero o plasma", "Quimica clinica", "Permite vigilar alteraciones hidroelectroliticas y compromiso renal.")
+    if "pediatria" in hospital_area:
+        add("Hemograma con diferencial", "Sangre total", "Hematologia automatizada", "Permite correlacionar fiebre, anemia, infeccion o inflamacion en edad pediatrica.")
+        add("PCR cuantitativa", "Suero o plasma", "Inmunoensayo/ELISA", "Apoya seguimiento de respuesta inflamatoria segun contexto pediatrico.")
+    if "ginecologia" in hospital_area or "obstetricia" in hospital_area:
+        add("Hemograma", "Sangre total", "Hematologia automatizada", "Evalua anemia, infeccion o sangrado segun contexto gineco-obstetrico.")
+        add("Uroanalisis y urocultivo si aplica", "Orina", "Quimica/microscopia/cultivo", "Apoya evaluacion de sintomas urinarios o infeccion asociada.")
+    if "cirugia" in hospital_area:
+        add("Hemograma", "Sangre total", "Hematologia automatizada", "Evalua anemia, leucocitosis o respuesta inflamatoria perioperatoria.")
+        add("TP, TPT e INR si aplica", "Plasma citratado", "Coagulometria", "Apoya valoracion hemostatica antes o despues de procedimiento.")
+    if "oncologia" in hospital_area:
+        add("Hemograma con diferencial", "Sangre total", "Hematologia automatizada", "Vigila citopenias, infeccion o seguimiento terapeutico.")
+        add("LDH", "Suero", "Quimica clinica", "Marcador inespecifico de dano tisular o actividad celular; requiere correlacion.")
+    if "infectologia" in hospital_area:
+        add("Cultivo segun foco", "Muestra del foco sospechoso", "Cultivo microbiologico", "Busca agente etiologico para interpretacion y posible antibiograma.")
+        add("Antibiograma si hay aislamiento", "Aislado bacteriano", "CLSI/EUCAST institucional", "Orienta sensibilidad/resistencia con validacion profesional.")
 
     if "Inflamatorio" in profiles or "fiebre" in lab_text or "dolor" in lab_text:
         add("PCR cuantitativa", "Suero o plasma", "Inmunoensayo/ELISA", "Evalua magnitud de respuesta inflamatoria.")
@@ -630,6 +688,7 @@ def base_case_from_intake(intake: dict) -> dict:
         "report_datetime": intake["report_datetime"],
         "lab_name": LAB_NAME,
         "bacteriologist_name": intake.get("bacteriologist_name", ""),
+        "hospital_area": intake.get("hospital_area", "No informado"),
         "age": intake["age"],
         "sex": intake["patient_gender"] if intake["patient_gender"] in ["Femenino", "Masculino"] else "No informado",
         "presumptive_diagnosis": intake.get("presumptive_diagnosis", ""),
@@ -687,6 +746,7 @@ def show_ai_response(case: dict, analysis: dict, exams_df: pd.DataFrame, evidenc
 
             Paciente: **{case.get('patient_name', 'No informado')}**  
             ID: **{case.get('patient_id', 'No informado')}**  
+            Area hospitalaria: **{case.get('hospital_area', 'No informado')}**  
             Sintomatologia: {', '.join(case.get('symptoms', [])) or 'No informada'}  
             Pregunta clinico-laboratorial: {case.get('presumptive_diagnosis') or 'No informada'}
             """
@@ -785,24 +845,24 @@ def chat_intake_view() -> None:
         """
         <div class="omic-grid">
             <div class="omic-card">
-                <div class="omic-icon">DNA</div>
-                <strong>Genomica</strong>
-                <span>Evalua genes, variantes, mutaciones y biomarcadores moleculares relevantes para priorizacion diagnostica.</span>
+                <div class="omic-icon">HOS</div>
+                <strong>Apoyo hospitalario</strong>
+                <span>Funciona para urgencias, UCI, hospitalizacion, consulta externa, pediatria, cirugia, oncologia e infectologia.</span>
             </div>
             <div class="omic-card">
-                <div class="omic-icon">RNA</div>
-                <strong>Transcriptomica</strong>
-                <span>Integra genes sobreexpresados o subexpresados para reconocer rutas biologicas activas.</span>
+                <div class="omic-icon">LAB</div>
+                <strong>Laboratorio clinico</strong>
+                <span>Sugiere examenes puntuales, tipo de muestra, metodo y justificacion segun sintomas y area hospitalaria.</span>
             </div>
             <div class="omic-card">
-                <div class="omic-icon">PRO</div>
-                <strong>Proteomica</strong>
-                <span>Relaciona proteinas aumentadas o disminuidas con inflamacion, proliferacion y seguimiento.</span>
+                <div class="omic-icon">MIC</div>
+                <strong>Microbiologia</strong>
+                <span>Prioriza cultivo, antibiograma y marcadores infecciosos cuando el caso lo requiere.</span>
             </div>
             <div class="omic-card">
-                <div class="omic-icon">MET</div>
-                <strong>Metabolomica</strong>
-                <span>Analiza metabolitos como lactato, glucosa o ATP para orientar alteraciones energeticas.</span>
+                <div class="omic-icon">MOL</div>
+                <strong>Molecular opcional</strong>
+                <span>Permite agregar genomica, transcriptomica, proteomica o metabolomica solo si el paciente tiene esos datos.</span>
             </div>
         </div>
         """,
@@ -814,6 +874,7 @@ def chat_intake_view() -> None:
         patient_name = st.text_input("Nombre del paciente", placeholder="Ejemplo: Paciente simulado 01")
         age = st.number_input("Edad", min_value=0, max_value=120, value=35)
         patient_gender = st.selectbox("Genero/Sexo", ["Femenino", "Masculino", "No binario", "Otro", "No informado"])
+        hospital_area = st.selectbox("Area hospitalaria", HOSPITAL_AREAS)
         patient_id = st.text_input("ID del paciente o muestra", placeholder="Ejemplo: BNX-0001")
         report_datetime = st.text_input("Fecha automatica", value=now_report_datetime(), disabled=True)
         symptoms = st.text_area("Sintomatologia", placeholder="fiebre, fatiga, dolor articular")
@@ -830,6 +891,7 @@ def chat_intake_view() -> None:
             "patient_name": patient_name,
             "age": age,
             "patient_gender": patient_gender,
+            "hospital_area": hospital_area,
             "patient_id": patient_id.strip(),
             "report_datetime": report_datetime,
             "symptoms": symptoms,
@@ -869,6 +931,7 @@ def follow_up_view() -> None:
 
             Paciente: **{record.get('patient_name', 'No informado')}**  
             ID: **{patient_id.strip()}**  
+            Area hospitalaria: **{record.get('hospital_area', 'No informado')}**  
             Sintomatologia inicial: {record.get('symptoms', 'No informado')}
 
             Ahora puedes cargar los resultados del laboratorio y BioNexus IA continuara la interpretacion profesional.
@@ -900,12 +963,13 @@ def follow_up_view() -> None:
             ],
         )
         preanalytical_observations = st.text_area("Observaciones preanaliticas")
-        st.markdown('<div class="small-title">Datos omicos si estan disponibles</div>', unsafe_allow_html=True)
-        genomic = st.text_area("Genomica", value=", ".join(record.get("genomic", [])))
-        transcriptomic = st.text_area("Transcriptomica", value=", ".join(record.get("transcriptomic", [])))
-        proteomic = st.text_area("Proteomica", value=", ".join(record.get("proteomic", [])))
-        metabolomic = st.text_area("Metabolomica", value=", ".join(record.get("metabolomic", [])))
-        submitted = st.form_submit_button("Continuar interpretacion con BioNexus AI", type="primary")
+        with st.expander("Datos moleculares u omicos opcionales"):
+            st.caption("Usa esta seccion solo si el caso tiene resultados genomicos, transcriptomicos, proteomicos o metabolomicos.")
+            genomic = st.text_area("Genomica opcional", value=", ".join(record.get("genomic", [])))
+            transcriptomic = st.text_area("Transcriptomica opcional", value=", ".join(record.get("transcriptomic", [])))
+            proteomic = st.text_area("Proteomica opcional", value=", ".join(record.get("proteomic", [])))
+            metabolomic = st.text_area("Metabolomica opcional", value=", ".join(record.get("metabolomic", [])))
+        submitted = st.form_submit_button("Actualizar informacion y continuar interpretacion", type="primary")
 
     if submitted:
         intake = {**record}
@@ -931,6 +995,7 @@ def follow_up_view() -> None:
         )
         case = base_case_from_intake(intake)
         save_patient_record(patient_id.strip(), intake)
+        st.success(f"Informacion actualizada para el ID {patient_id.strip()} a las {intake['report_datetime']}.")
         show_interpretation(case)
 
 
@@ -960,6 +1025,66 @@ def dashboard_view() -> None:
         st.warning("Hay casos marcados para revision prioritaria.")
         st.dataframe(priority, width="stretch", hide_index=True)
 
+    st.markdown('<div class="section-title">Analitica visual de pacientes</div>', unsafe_allow_html=True)
+    g1, g2 = st.columns(2)
+    status_counts = saved_df["Estado"].value_counts().reset_index()
+    status_counts.columns = ["Estado", "Pacientes"]
+    area_counts = saved_df["Area"].fillna("No informado").value_counts().reset_index()
+    area_counts.columns = ["Area", "Pacientes"]
+    result_counts = saved_df["Resultado"].fillna("Pendiente").value_counts().reset_index()
+    result_counts.columns = ["Resultado", "Pacientes"]
+
+    with g1:
+        fig_status = go.Figure(
+            data=[
+                go.Bar(
+                    x=status_counts["Estado"],
+                    y=status_counts["Pacientes"],
+                    marker_color="#0891b2",
+                )
+            ]
+        )
+        fig_status.update_layout(
+            title="Pacientes por estado del caso",
+            height=360,
+            xaxis_title="Estado",
+            yaxis_title="Pacientes",
+            margin=dict(l=20, r=20, t=55, b=90),
+        )
+        st.plotly_chart(fig_status, width="stretch")
+    with g2:
+        fig_result = go.Figure(
+            data=[
+                go.Pie(
+                    labels=result_counts["Resultado"],
+                    values=result_counts["Pacientes"],
+                    hole=0.42,
+                    marker_colors=["#12c7bd", "#0f766e", "#f59e0b", "#ef4444"],
+                )
+            ]
+        )
+        fig_result.update_layout(title="Distribucion por resultado", height=360, margin=dict(l=20, r=20, t=55, b=20))
+        st.plotly_chart(fig_result, width="stretch")
+
+    fig_area = go.Figure(
+        data=[
+            go.Bar(
+                x=area_counts["Pacientes"],
+                y=area_counts["Area"],
+                orientation="h",
+                marker_color="#0f766e",
+            )
+        ]
+    )
+    fig_area.update_layout(
+        title="Pacientes por area hospitalaria",
+        height=380,
+        xaxis_title="Pacientes",
+        yaxis_title="Area",
+        margin=dict(l=20, r=20, t=55, b=30),
+    )
+    st.plotly_chart(fig_area, width="stretch")
+
     st.markdown('<div class="small-title">Pacientes que faltan por traer resultados de laboratorio</div>', unsafe_allow_html=True)
     st.dataframe(pending if not pending.empty else pd.DataFrame(columns=saved_df.columns), width="stretch", hide_index=True)
 
@@ -972,11 +1097,14 @@ def dashboard_view() -> None:
 
 def safety_view() -> None:
     st.markdown('<div class="section-title">Seguridad, trazabilidad y siguiente fase</div>', unsafe_allow_html=True)
-    st.write("- Esta version guarda datos en SQLite local de la app. En Streamlit Cloud puede ser persistencia temporal.")
-    st.write("- Para uso real se necesita login, roles, cifrado, auditoria y base de datos segura.")
-    st.write("- Debe existir estado del informe: borrador, revisado, liberado.")
+    st.write("- Esta version usa contrasenas de prototipo por modulo. Para uso real deben reemplazarse por login institucional.")
+    st.write("- Para uso real se necesita roles por usuario: bacteriologo/laboratorista, medico, administrador y auditor.")
+    st.write("- La base de datos debe ser segura, cifrada, con copias de respaldo y control de acceso.")
+    st.write("- Debe existir auditoria: quien ingreso, consulto, edito, descargo o libero cada informe.")
+    st.write("- El estado del informe debe manejar borrador, revisado, liberado, corregido y anulado.")
     st.write("- La IA debe usar fuentes curadas, versionadas y trazables, no internet abierto sin filtro.")
-    st.write("- Para antimicrobianos: no formula antibiotico ni dosis; exige cultivo/antibiograma, guias institucionales y validacion medica.")
+    st.write("- Para antimicrobianos: no formula antibiotico ni dosis sin cultivo/antibiograma, guias institucionales y validacion medica.")
+    st.write("- Para integracion hospitalaria futura: HL7/FHIR, LOINC, SNOMED CT, CIE-10, unidades estandarizadas y consentimiento informado.")
 
 
 init_db()
@@ -987,10 +1115,14 @@ intake_tab, follow_tab, dashboard_tab, safety_tab = st.tabs(
     ["Ingreso del paciente", "Seguimiento por ID", "Resumen de pacientes", "Validacion y seguridad"]
 )
 with intake_tab:
-    chat_intake_view()
+    if require_module_password("ingreso", "Ingreso del paciente"):
+        chat_intake_view()
 with follow_tab:
-    follow_up_view()
+    if require_module_password("seguimiento", "Seguimiento por ID"):
+        follow_up_view()
 with dashboard_tab:
-    dashboard_view()
+    if require_module_password("resumen", "Resumen de pacientes"):
+        dashboard_view()
 with safety_tab:
-    safety_view()
+    if require_module_password("seguridad", "Validacion y seguridad"):
+        safety_view()
