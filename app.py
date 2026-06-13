@@ -363,23 +363,106 @@ def retrieve_curated_evidence(case: dict, analysis: dict, limit: int = 4) -> lis
     return sorted(scored, key=lambda item: int(item["score"]), reverse=True)[:limit]
 
 
+def clinical_flags(case: dict) -> list[dict]:
+    """Detecta senales clinicas simples para hacer la respuesta menos generica."""
+    text = " ".join(
+        [
+            str(case.get("presumptive_diagnosis", "")),
+            " ".join(case.get("symptoms", [])),
+            " ".join(case.get("lab_results", [])),
+        ]
+    ).lower()
+    flags = []
+
+    def has_any(words: list[str]) -> bool:
+        return any(word in text for word in words)
+
+    if has_any(["perdida de conciencia", "pérdida de conciencia", "desmayo", "convulsion", "convulsión", "confusion", "confusión", "agitacion", "agitación"]):
+        flags.append(
+            {
+                "area": "Neurologica/urgencia",
+                "priority": "Alta",
+                "reason": "hay sintomas que pueden requerir revision prioritaria y correlacion clinica inmediata.",
+            }
+        )
+    if has_any(["respiratorio", "respiratoria", "tos", "disnea", "dificultad respiratoria", "saturacion", "saturación"]):
+        flags.append(
+            {
+                "area": "Respiratoria/infecciosa",
+                "priority": "Moderada a alta",
+                "reason": "los sintomas respiratorios justifican pruebas inflamatorias, infecciosas y de oxigenacion segun contexto.",
+            }
+        )
+    if has_any(["fiebre", "escalofrio", "escalofrío", "sudoracion", "sudoración", "nocturna"]):
+        flags.append(
+            {
+                "area": "Inflamatoria/infecciosa",
+                "priority": "Moderada",
+                "reason": "la fiebre o sudoracion orienta a documentar inflamacion y buscar foco infeccioso.",
+            }
+        )
+    if has_any(["palido", "pálido", "palidez", "cansancio", "fatiga"]):
+        flags.append(
+            {
+                "area": "Hematologica/metabolica",
+                "priority": "Moderada",
+                "reason": "fatiga o palidez hacen pertinente evaluar hemograma, hierro y metabolismo basico.",
+            }
+        )
+    if has_any(["prurito", "picazon", "picazón", "alergia", "roncha"]):
+        flags.append(
+            {
+                "area": "Alergica/inmunologica",
+                "priority": "Baja a moderada",
+                "reason": "el prurito puede requerir correlacion con eosinofilos, IgE, perfil hepatico o causas dermatologicas.",
+            }
+        )
+    if has_any(["glucosa", "lactato", "diabetes", "hipoglucemia", "hiperglucemia", "metabolico", "metabólico"]):
+        flags.append(
+            {
+                "area": "Metabolica",
+                "priority": "Segun resultado",
+                "reason": "los datos metabolicos deben interpretarse con unidades, rangos y tendencia.",
+            }
+        )
+    return flags
+
+
 def build_ai_summary(case: dict, analysis: dict, evidence_rows: list[dict]) -> list[str]:
     profiles = ", ".join(row["profile"] for row in evidence_rows)
     summary = analysis["summary"]
-    return [
-        f"Detecto perfiles relevantes: {profiles}.",
-        f"Prioridad operacional: {summary.get('alert', 'No informado')}.",
-        "Recomiendo iniciar con examenes de laboratorio dirigidos antes de interpretar biomarcadores moleculares.",
-        "El bacteriologo responsable debe revisar preanalitica, metodo, rangos, unidades y consistencia clinica antes de liberar.",
+    patient_name = case.get("patient_name") or "el paciente"
+    symptoms = ", ".join(case.get("symptoms", [])) or "no se registraron sintomas especificos"
+    flags = clinical_flags(case)
+    lines = [
+        f"Recibi el caso de {patient_name} con ID {case.get('patient_id', 'no informado')}. Sintomas registrados: {symptoms}.",
+        f"Con los datos actuales, los perfiles mas relacionados son: {profiles}.",
+        f"Nivel operativo inicial: {summary.get('alert', 'No informado')}.",
     ]
+    if flags:
+        for flag in flags[:4]:
+            lines.append(f"Senal {flag['area']}: prioridad {flag['priority']}; {flag['reason']}")
+    else:
+        lines.append("No detecto una senal clinica dominante; sugiero iniciar con pruebas basicas y ajustar segun resultados.")
+    lines.extend(
+        [
+            "Primero recomiendo examenes de laboratorio dirigidos. Despues, con resultados y calidad de muestra, puedo apoyar la interpretacion profesional.",
+            "El bacteriologo responsable debe validar preanalitica, metodo, rangos, unidades y consistencia clinica antes de liberar.",
+        ]
+    )
+    return lines
 
 
 def recommended_lab_tests(case: dict, marker_recommendations: dict, evidence_rows: list[dict]) -> pd.DataFrame:
     profiles = {row["profile"] for row in evidence_rows}
     lab_text = " ".join(case.get("symptoms", []) + case.get("lab_results", [])).lower()
     rows = []
+    seen_tests = set()
 
     def add(test: str, sample: str, method: str, reason: str, validator: str = "Bacteriologo/laboratorista clinico"):
+        if test in seen_tests:
+            return
+        seen_tests.add(test)
         rows.append(
             {
                 "Examen sugerido": test,
@@ -406,6 +489,22 @@ def recommended_lab_tests(case: dict, marker_recommendations: dict, evidence_row
         add("Panel molecular dirigido", "Tejido/sangre segun indicacion", "qPCR/secuenciacion", "Explora biomarcadores de proliferacion con validacion especializada.")
     if "Molecular/genetico" in profiles:
         add("Panel genetico validado", "Sangre/saliva/tejido", "Secuenciacion/qPCR", "Prioriza genes candidatos y requiere consentimiento/validacion.")
+
+    for flag in clinical_flags(case):
+        if flag["area"] == "Neurologica/urgencia":
+            add("Glucosa inmediata", "Sangre capilar/suero", "Quimica clinica o glucometria validada", "Ayuda a descartar alteracion glucemica en sintomas neurologicos.")
+            add("Electrolitos", "Suero o plasma", "Quimica clinica", "Sodio, potasio y cloro pueden explicar compromiso neurologico o debilidad.")
+            add("Gasometria y lactato", "Sangre arterial o venosa", "Gasometria", "Apoya evaluacion de oxigenacion, perfusion y estado acido-base.")
+        if flag["area"] == "Respiratoria/infecciosa":
+            add("Saturacion de oxigeno y gases si aplica", "Dato clinico/sangre", "Oximetria/gasometria", "Correlaciona sintomas respiratorios con oxigenacion.")
+            add("Panel respiratorio molecular segun disponibilidad", "Hisopado nasofaringeo", "PCR/qPCR", "Busca agentes respiratorios cuando el contexto lo justifique.")
+        if flag["area"] == "Hematologica/metabolica":
+            add("Ferritina y perfil de hierro", "Suero", "Quimica clinica/inmunoensayo", "Apoya evaluacion de fatiga, palidez o posible anemia/inflamacion.")
+            add("Perfil metabolico basico", "Suero o plasma", "Quimica clinica", "Evalua glucosa, funcion renal y electrolitos para correlacion inicial.")
+        if flag["area"] == "Alergica/inmunologica":
+            add("Eosinofilos absolutos", "Sangre total", "Hemograma con diferencial", "Apoya correlacion con alergia, parasitosis o respuesta inmunologica.")
+            add("IgE total si aplica", "Suero", "Inmunoensayo", "Puede orientar componente alergico; requiere interpretacion clinica.")
+            add("Perfil hepatico", "Suero", "Quimica clinica", "Ayuda a correlacionar prurito con causas hepatobiliares si el contexto lo sugiere.")
 
     if not rows:
         add("Hemograma, PCR y panel metabolico basico", "Sangre/suero", "Metodos validados", "Panel inicial para orientar interpretacion laboratorial.")
@@ -514,9 +613,23 @@ def enrich_case(case: dict) -> tuple[dict, dict, pd.DataFrame, list[dict], list[
 
 
 def show_ai_response(case: dict, analysis: dict, exams_df: pd.DataFrame, evidence_rows: list[dict], ai_summary: list[str]) -> None:
-    st.markdown('<div class="ai-bubble"><strong>BioNexus AI responde</strong></div>', unsafe_allow_html=True)
-    for line in ai_summary:
-        st.write(f"- {line}")
+    with st.chat_message("user"):
+        st.markdown(
+            f"""
+            **Ingreso enviado a BioNexus IA**
+
+            Paciente: **{case.get('patient_name', 'No informado')}**  
+            ID: **{case.get('patient_id', 'No informado')}**  
+            Sintomatologia: {', '.join(case.get('symptoms', [])) or 'No informada'}  
+            Pregunta clinico-laboratorial: {case.get('presumptive_diagnosis') or 'No informada'}
+            """
+        )
+
+    with st.chat_message("assistant"):
+        st.markdown("**BioNexus IA responde**")
+        for line in ai_summary:
+            st.write(f"- {line}")
+
     st.markdown('<div class="section-title">Examenes de laboratorio relevantes y justificacion</div>', unsafe_allow_html=True)
     st.dataframe(exams_df, width="stretch", hide_index=True)
     st.markdown('<div class="section-title">Evidencia curada recuperada</div>', unsafe_allow_html=True)
@@ -525,7 +638,30 @@ def show_ai_response(case: dict, analysis: dict, exams_df: pd.DataFrame, evidenc
         width="stretch",
         hide_index=True,
     )
-    st.info(f"Se guardo el ingreso con ID: {case['patient_id']}. El paciente puede regresar para seguimiento.")
+    st.info(
+        f"Se guardo el ingreso con ID: {case['patient_id']}. Para seguimiento, abre la pestana "
+        "'Seguimiento / datos guardados', escribe ese ID y carga los resultados del laboratorio."
+    )
+
+    st.markdown('<div class="section-title">Descarga preliminar</div>', unsafe_allow_html=True)
+    patient_pdf = build_pdf(case, analysis, report_type="patient")
+    technical_pdf = build_pdf(case, analysis, report_type="technical")
+    p1, p2 = st.columns(2)
+    with p1:
+        st.download_button(
+            "PDF preliminar para paciente",
+            data=patient_pdf,
+            file_name=f"plan_preliminar_paciente_{case['patient_id']}.pdf",
+            mime="application/pdf",
+            type="primary",
+        )
+    with p2:
+        st.download_button(
+            "PDF preliminar tecnico",
+            data=technical_pdf,
+            file_name=f"plan_preliminar_tecnico_{case['patient_id']}.pdf",
+            mime="application/pdf",
+        )
 
 
 def show_interpretation(case: dict) -> None:
@@ -639,12 +775,12 @@ def chat_intake_view() -> None:
         intake["recommendation_rows"] = marker_recommendations["recommendation_rows"]
         save_patient_record(patient_id.strip(), intake)
 
-        st.markdown('<div class="user-bubble"><strong>Ingreso recibido</strong><br>BioNexus AI analiza sintomas, contexto y perfiles relevantes.</div>', unsafe_allow_html=True)
         show_ai_response(case, analysis, exams_df, evidence_rows, ai_summary)
 
 
 def follow_up_view() -> None:
     st.markdown('<div class="section-title">Seguimiento / datos guardados</div>', unsafe_allow_html=True)
+    st.info("Para continuar un caso guardado, escribe el mismo ID del paciente o muestra. Ejemplo: si guardaste ID 01, busca 01.")
     saved_df = list_patient_records()
     if not saved_df.empty:
         st.dataframe(saved_df, width="stretch", hide_index=True)
@@ -659,9 +795,18 @@ def follow_up_view() -> None:
         st.error("No encontre un caso con ese ID.")
         return
 
-    st.markdown('<div class="chat-card">Caso encontrado. Puedes completar resultados y continuar la interpretacion.</div>', unsafe_allow_html=True)
-    st.write(f"**Paciente:** {record.get('patient_name', 'No informado')}")
-    st.write(f"**Sintomatologia inicial:** {record.get('symptoms', 'No informado')}")
+    with st.chat_message("assistant"):
+        st.markdown(
+            f"""
+            **Caso encontrado**
+
+            Paciente: **{record.get('patient_name', 'No informado')}**  
+            ID: **{patient_id.strip()}**  
+            Sintomatologia inicial: {record.get('symptoms', 'No informado')}
+
+            Ahora puedes cargar los resultados del laboratorio y BioNexus IA continuara la interpretacion profesional.
+            """
+        )
     if record.get("recommended_exams"):
         st.markdown('<div class="small-title">Examenes sugeridos previamente</div>', unsafe_allow_html=True)
         st.dataframe(pd.DataFrame(record["recommended_exams"]), width="stretch", hide_index=True)
