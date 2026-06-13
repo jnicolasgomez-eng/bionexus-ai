@@ -17,6 +17,12 @@ from modules.report import build_pdf
 APP_DIR = Path(__file__).parent
 ASSETS_DIR = APP_DIR / "assets"
 LOGO_PATH = ASSETS_DIR / "bionexus_logo.png"
+LOGO_FALLBACK_PATHS = [
+    ASSETS_DIR / "bionexus_logo.png",
+    ASSETS_DIR / "bionexus_logo_small.png",
+    APP_DIR / "bionexus_logo.png",
+    APP_DIR / "bionexus_logo_small.png",
+]
 DB_PATH = APP_DIR / "bionexus_patients.db"
 LAB_NAME = "BioNexus AI"
 REPORT_TZ = ZoneInfo("America/Bogota")
@@ -302,10 +308,11 @@ def render_styles() -> None:
 
 def hero() -> None:
     logo_html = '<div class="omic-icon">BN</div>'
-    if LOGO_PATH.exists():
+    logo_file = next((path for path in LOGO_FALLBACK_PATHS if path.exists()), None)
+    if logo_file:
         import base64
 
-        encoded = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+        encoded = base64.b64encode(logo_file.read_bytes()).decode("utf-8")
         logo_html = f'<img src="data:image/png;base64,{encoded}" alt="BioNexus IA logo">'
 
     st.markdown(
