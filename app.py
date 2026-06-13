@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -14,25 +15,28 @@ from modules.report import build_pdf
 
 
 APP_DIR = Path(__file__).parent
-EXAMPLE_PATH = APP_DIR / "data" / "example_case.json"
+ASSETS_DIR = APP_DIR / "assets"
+LOGO_PATH = ASSETS_DIR / "bionexus_logo.png"
+DB_PATH = APP_DIR / "bionexus_patients.db"
 LAB_NAME = "BioNexus AI"
 REPORT_TZ = ZoneInfo("America/Bogota")
+APP_VERSION = "BioNexus AI Lab Support v0.4"
 
 
 CURATED_KNOWLEDGE = [
     {
         "profile": "Inflamatorio",
         "keywords": "inflamacion fiebre pcr vsg il6 tnf crp cxcl8 dolor articular",
-        "clinical_use": "Apoya la interpretacion de respuesta inflamatoria sistemica o local cuando se correlaciona con clinica y laboratorio.",
+        "clinical_use": "Apoya la interpretacion de respuesta inflamatoria sistemica o local.",
         "markers": "IL6, TNF, CRP, CXCL8",
-        "limitations": "No diferencia por si solo inflamacion infecciosa, autoinmune, tumoral o traumatica.",
+        "limitations": "No diferencia etiologia infecciosa, autoinmune, tumoral o traumatica por si solo.",
         "source": "WHO - Ethics and governance of AI for health",
         "source_url": "https://www.who.int/publications/i/item/9789240029200",
     },
     {
         "profile": "Infeccioso",
         "keywords": "infeccion sepsis cultivo antibiograma fiebre leucocitos procalcitonina lactato bacteria",
-        "clinical_use": "Prioriza correlacion entre sintomas, muestra, cultivo, antibiograma y marcadores de respuesta inflamatoria.",
+        "clinical_use": "Prioriza correlacion entre sintomas, muestra, cultivo, antibiograma y marcadores inflamatorios.",
         "markers": "CRP, IL6, CXCL8, Lactato, procalcitonina si esta disponible",
         "limitations": "No reemplaza cultivo, identificacion microbiologica, antibiograma ni guias institucionales.",
         "source": "FDA - Clinical Decision Support Software guidance",
@@ -41,16 +45,16 @@ CURATED_KNOWLEDGE = [
     {
         "profile": "Metabolico",
         "keywords": "metabolico glucosa lactato atp piruvato hipoxia diabetes ldh ldha glut1",
-        "clinical_use": "Apoya sospecha de alteracion metabolica o energetica mediante integracion de metabolitos y marcadores moleculares.",
+        "clinical_use": "Apoya sospecha de alteracion metabolica o energetica.",
         "markers": "Glucosa, Lactato, ATP, Piruvato, LDHA, GLUT1",
-        "limitations": "Altamente dependiente de ayuno, transporte, procesamiento y estado clinico del paciente.",
+        "limitations": "Depende de ayuno, transporte, procesamiento y estado clinico.",
         "source": "IMDRF - SaMD clinical evaluation",
         "source_url": "https://www.imdrf.org/documents/software-medical-device-samd-clinical-evaluation",
     },
     {
         "profile": "Tumoral/proliferativo",
         "keywords": "tumor neoplasia cancer proliferacion tp53 egfr myc mki67 cdk1 biopsia masa",
-        "clinical_use": "Orienta discusion molecular de proliferacion celular y vias de crecimiento en contexto de muestra validada.",
+        "clinical_use": "Orienta discusion molecular de proliferacion celular y vias de crecimiento.",
         "markers": "TP53, EGFR, MYC, MKI67, CDK1",
         "limitations": "No confirma malignidad sin histopatologia, correlacion clinica y validacion molecular.",
         "source": "IMDRF - SaMD clinical evaluation",
@@ -59,53 +63,205 @@ CURATED_KNOWLEDGE = [
     {
         "profile": "Molecular/genetico",
         "keywords": "genetico molecular brca brca1 brca2 tp53 mutacion hereditario familiar adn secuenciacion",
-        "clinical_use": "Apoya priorizacion de biomarcadores genomicos y necesidad de validacion molecular o consejeria genetica.",
+        "clinical_use": "Apoya priorizacion de biomarcadores genomicos y validacion molecular.",
         "markers": "BRCA1, BRCA2, TP53",
-        "limitations": "Requiere consentimiento, control de calidad, interpretacion de variantes y confirmacion por laboratorio validado.",
+        "limitations": "Requiere consentimiento, control de calidad, interpretacion de variantes y confirmacion.",
         "source": "FDA - Clinical Decision Support Software guidance",
         "source_url": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/clinical-decision-support-software",
-    },
-    {
-        "profile": "Seguimiento terapeutico",
-        "keywords": "seguimiento terapeutico tratamiento respuesta control evolucion antibiotico antimicrobiano tendencia",
-        "clinical_use": "Apoya seguimiento de tendencia laboratorial y respuesta, sin seleccionar tratamientos ni dosis.",
-        "markers": "CRP, LDHA, Lactato, IL6 segun contexto",
-        "limitations": "Debe compararse contra basal, metodo equivalente y evolucion clinica.",
-        "source": "WHO - Ethics and governance of AI for health",
-        "source_url": "https://www.who.int/publications/i/item/9789240029200",
     },
 ]
 
 
-st.set_page_config(
-    page_title="BioNexus AI",
-    page_icon="🧬",
-    layout="wide",
-)
+st.set_page_config(page_title="BioNexus AI", page_icon="BN", layout="wide")
 
 
-def load_example_case() -> dict:
-    """Lee el caso de ejemplo para llenar rapidamente el formulario."""
-
-    with EXAMPLE_PATH.open("r", encoding="utf-8") as file:
-        return json.load(file)
-
-
-def join_items(items: list[str]) -> str:
-    """Convierte listas del ejemplo en texto editable para Streamlit."""
-
-    return ", ".join(items)
-
-
-def current_report_datetime() -> str:
-    """Fecha y hora de expedicion del informe en hora de Colombia."""
-
+def now_report_datetime() -> str:
     return datetime.now(REPORT_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def retrieve_curated_evidence(case: dict, analysis: dict, limit: int = 4) -> list[dict]:
-    """Recupera evidencia desde una base curada incluida en la app."""
+def init_db() -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS patients (
+                patient_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
 
+
+def save_patient_record(patient_id: str, payload: dict) -> None:
+    timestamp = now_report_datetime()
+    with sqlite3.connect(DB_PATH) as conn:
+        existing = conn.execute("SELECT created_at FROM patients WHERE patient_id = ?", (patient_id,)).fetchone()
+        created_at = existing[0] if existing else timestamp
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO patients (patient_id, payload, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (patient_id, json.dumps(payload, ensure_ascii=False), created_at, timestamp),
+        )
+
+
+def load_patient_record(patient_id: str) -> dict | None:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute("SELECT payload FROM patients WHERE patient_id = ?", (patient_id,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def list_patient_records() -> pd.DataFrame:
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute("SELECT patient_id, payload, created_at, updated_at FROM patients ORDER BY updated_at DESC").fetchall()
+    data = []
+    for patient_id, payload, created_at, updated_at in rows:
+        item = json.loads(payload)
+        data.append(
+            {
+                "ID": patient_id,
+                "Paciente": item.get("patient_name", "No informado"),
+                "Estado": item.get("workflow_status", "Ingreso inicial"),
+                "Creado": created_at,
+                "Actualizado": updated_at,
+            }
+        )
+    return pd.DataFrame(data)
+
+
+def render_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --bn-navy: #061622;
+            --bn-teal: #12c7bd;
+            --bn-blue: #0284c7;
+            --bn-green: #0f766e;
+            --bn-soft: #e8fbff;
+            --bn-line: #b7e4ea;
+            --bn-ink: #0f172a;
+        }
+        .stApp {
+            background:
+                linear-gradient(180deg, #eefcff 0%, #f8fafc 46%, #ecfeff 100%);
+            color: var(--bn-ink);
+        }
+        .block-container {
+            padding-top: 1.2rem;
+            padding-bottom: 3rem;
+        }
+        .bn-hero {
+            background: linear-gradient(135deg, #062033 0%, #0f766e 55%, #06b6d4 100%);
+            color: white;
+            border-radius: 18px;
+            padding: 1.2rem 1.35rem;
+            display: flex;
+            gap: 1.1rem;
+            align-items: center;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, .18);
+            margin-bottom: 1rem;
+        }
+        .bn-hero img {
+            width: 96px;
+            height: 96px;
+            object-fit: cover;
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,.25);
+        }
+        .bn-hero h1 {
+            margin: 0;
+            font-size: 2.25rem;
+            letter-spacing: 0;
+        }
+        .bn-hero p {
+            margin: .25rem 0 0 0;
+            color: #ddfeff;
+        }
+        .chat-card {
+            background: rgba(255,255,255,.94);
+            border: 1px solid var(--bn-line);
+            border-radius: 14px;
+            padding: 1rem;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, .08);
+            margin: .6rem 0 1rem 0;
+        }
+        .ai-bubble {
+            background: #ecfeff;
+            border: 1px solid #67e8f9;
+            border-left: 6px solid #0891b2;
+            padding: 1rem;
+            border-radius: 14px;
+            margin: .75rem 0;
+        }
+        .user-bubble {
+            background: #f0fdf4;
+            border: 1px solid #86efac;
+            border-left: 6px solid #0f766e;
+            padding: 1rem;
+            border-radius: 14px;
+            margin: .75rem 0;
+        }
+        .section-title {
+            color: #155e75;
+            font-weight: 900;
+            font-size: 1.22rem;
+            margin: 1.1rem 0 .45rem 0;
+        }
+        .small-title {
+            color: #0f766e;
+            font-weight: 850;
+            margin: .45rem 0 .25rem 0;
+        }
+        .warning-box {
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-left: 6px solid #d97706;
+            border-radius: 12px;
+            color: #7c2d12;
+            padding: .85rem 1rem;
+            margin: .75rem 0;
+            font-weight: 650;
+        }
+        div[data-testid="stDataFrame"] {
+            border: 1px solid var(--bn-line);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def hero() -> None:
+    logo_html = ""
+    if LOGO_PATH.exists():
+        import base64
+
+        encoded = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+        logo_html = f'<img src="data:image/png;base64,{encoded}" alt="BioNexus AI logo">'
+    st.markdown(
+        f"""
+        <div class="bn-hero">
+            {logo_html}
+            <div>
+                <h1>Charla con BioNexus AI</h1>
+                <p>Apoyo interpretativo de laboratorio con IA, biomarcadores y seguimiento por ID.</p>
+                <p><strong>{APP_VERSION}</strong></p>
+            </div>
+        </div>
+        <div class="warning-box">
+            Herramienta de apoyo interpretativo. La liberacion diagnostica debe realizarla el bacteriologo/laboratorista clinico responsable y correlacionarse con el medico tratante.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def retrieve_curated_evidence(case: dict, analysis: dict, limit: int = 4) -> list[dict]:
     text_parts = [
         str(case.get("presumptive_diagnosis", "")),
         " ".join(case.get("symptoms", [])),
@@ -127,926 +283,334 @@ def retrieve_curated_evidence(case: dict, analysis: dict, limit: int = 4) -> lis
     return sorted(scored, key=lambda item: int(item["score"]), reverse=True)[:limit]
 
 
-def build_ai_interpretive_summary(case: dict, analysis: dict, evidence_rows: list[dict]) -> list[str]:
-    """Construye una sintesis tipo IA basada solo en evidencia curada."""
-
-    summary = analysis["summary"]
+def build_ai_summary(case: dict, analysis: dict, evidence_rows: list[dict]) -> list[str]:
     profiles = ", ".join(row["profile"] for row in evidence_rows)
+    summary = analysis["summary"]
     return [
-        f"Perfil documental recuperado: {profiles}.",
-        f"Clasificacion molecular simulada: {summary.get('molecular_class')}; nivel de alerta: {summary.get('alert', 'No informado')}.",
-        "La interpretacion se basa en coincidencia entre sintomas, resultados de laboratorio, datos omicos y perfiles de conocimiento curados.",
-        "La salida debe ser revisada y liberada por bacteriologo/laboratorista clinico responsable antes de uso asistencial.",
+        f"Detecto perfiles relevantes: {profiles}.",
+        f"Prioridad operacional: {summary.get('alert', 'No informado')}.",
+        "Recomiendo iniciar con examenes de laboratorio dirigidos antes de interpretar biomarcadores moleculares.",
+        "El bacteriologo responsable debe revisar preanalitica, metodo, rangos, unidades y consistencia clinica antes de liberar.",
     ]
 
 
-def render_styles() -> None:
-    """Estilos visuales: salud digital, biotecnologia e IA."""
+def recommended_lab_tests(case: dict, marker_recommendations: dict, evidence_rows: list[dict]) -> pd.DataFrame:
+    profiles = {row["profile"] for row in evidence_rows}
+    lab_text = " ".join(case.get("symptoms", []) + case.get("lab_results", [])).lower()
+    rows = []
 
-    st.markdown(
-        """
-        <style>
-        :root {
-            --bio-teal: #0f766e;
-            --bio-cyan: #0891b2;
-            --bio-indigo: #4f46e5;
-            --bio-gold: #d97706;
-            --bio-ink: #0f172a;
-            --bio-muted: #64748b;
-            --bio-soft: #ecfeff;
-            --bio-line: #cbd5e1;
-        }
-        .stApp {
-            background:
-                radial-gradient(circle at top left, rgba(20, 184, 166, 0.13), transparent 28rem),
-                linear-gradient(180deg, #f8fafc 0%, #eef9fb 100%);
-            color: var(--bio-ink);
-        }
-        .block-container {
-            padding-top: 2rem;
-            padding-bottom: 3rem;
-        }
-        .hero {
-            border: 1px solid rgba(15, 118, 110, 0.18);
-            background:
-                linear-gradient(135deg, rgba(15, 118, 110, 0.96), rgba(8, 145, 178, 0.9)),
-                repeating-linear-gradient(90deg, rgba(255,255,255,.12) 0 1px, transparent 1px 42px);
-            color: white;
-            padding: 2.15rem;
-            border-radius: 18px;
-            box-shadow: 0 18px 50px rgba(15, 23, 42, 0.14);
-            margin-bottom: 1rem;
-            position: relative;
-            overflow: hidden;
-        }
-        .hero::after {
-            content: "AI";
-            position: absolute;
-            right: 2rem;
-            bottom: -1.2rem;
-            color: rgba(255,255,255,.12);
-            font-size: 7rem;
-            font-weight: 900;
-        }
-        .hero h1 {
-            font-size: 3rem;
-            margin: 0;
-            letter-spacing: 0;
-        }
-        .hero p {
-            font-size: 1.08rem;
-            margin: .4rem 0 0 0;
-        }
-        .warning {
-            background: #fff7ed;
-            border: 1px solid #fed7aa;
-            color: #9a3412;
-            padding: .85rem 1rem;
-            border-radius: 10px;
-            margin: .75rem 0 1.25rem 0;
-            font-weight: 600;
-        }
-        .guide-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: .85rem;
-            margin: 1rem 0 1.25rem 0;
-        }
-        .guide-card {
-            background: rgba(255,255,255,.9);
-            border: 1px solid var(--bio-line);
-            border-left: 5px solid var(--bio-teal);
-            border-radius: 12px;
-            padding: 1rem;
-            min-height: 124px;
-        }
-        .guide-card strong {
-            color: #155e75;
-            display: block;
-            margin-bottom: .35rem;
-        }
-        .guide-card span {
-            color: var(--bio-muted);
-            font-size: .92rem;
-            line-height: 1.35rem;
-        }
-        .step-title {
-            color: #0f172a;
-            font-weight: 850;
-            font-size: 1.08rem;
-            margin: 1.2rem 0 .25rem 0;
-            padding: .65rem .85rem;
-            border: 1px solid #dbeafe;
-            border-left: 6px solid var(--bio-cyan);
-            border-radius: 10px;
-            background: rgba(255,255,255,.78);
-        }
-        .field-note {
-            color: #475569;
-            font-size: .86rem;
-            margin: -.35rem 0 .65rem 0;
-        }
-        .mini-note {
-            background: #f8fafc;
-            border: 1px dashed #94a3b8;
-            border-radius: 10px;
-            padding: .8rem .9rem;
-            color: #334155;
-            font-size: .92rem;
-            margin: .35rem 0 .95rem 0;
-        }
-        .metric-card {
-            background: rgba(255,255,255,.88);
-            border: 1px solid var(--bio-line);
-            border-radius: 12px;
-            padding: 1rem;
-            min-height: 112px;
-        }
-        .metric-label {
-            color: var(--bio-muted);
-            font-size: .82rem;
-            text-transform: uppercase;
-            letter-spacing: .04em;
-        }
-        .metric-value {
-            color: var(--bio-ink);
-            font-size: 1.45rem;
-            font-weight: 800;
-            margin-top: .25rem;
-        }
-        .executive-card {
-            background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(248,250,252,.96));
-            border: 1px solid var(--bio-line);
-            border-radius: 14px;
-            padding: 1.15rem;
-            box-shadow: 0 12px 30px rgba(15, 23, 42, .08);
-            margin: .8rem 0 1rem 0;
-        }
-        .executive-card h3 {
-            color: #0f172a;
-            margin: 0 0 .45rem 0;
-            font-size: 1.18rem;
-        }
-        .executive-card p {
-            color: #334155;
-            line-height: 1.5rem;
-            margin: .2rem 0;
-        }
-        .status-pill {
-            display: inline-block;
-            border-radius: 999px;
-            padding: .3rem .7rem;
-            font-size: .82rem;
-            font-weight: 800;
-            margin: .25rem .35rem .25rem 0;
-            border: 1px solid rgba(15,23,42,.08);
-        }
-        .pill-low {
-            background: #ecfdf5;
-            color: #047857;
-        }
-        .pill-mid {
-            background: #fffbeb;
-            color: #b45309;
-        }
-        .pill-high {
-            background: #fef2f2;
-            color: #b91c1c;
-        }
-        .pill-blue {
-            background: #eff6ff;
-            color: #1d4ed8;
-        }
-        .callout {
-            background: #f8fafc;
-            border: 1px solid #dbeafe;
-            border-left: 5px solid var(--bio-indigo);
-            border-radius: 12px;
-            padding: .9rem 1rem;
-            color: #334155;
-            margin: .7rem 0;
-        }
-        .small-title {
-            color: #155e75;
-            font-weight: 800;
-            margin: .35rem 0 .25rem 0;
-        }
-        .support-badge {
-            background: #ecfeff;
-            border: 1px solid #67e8f9;
-            color: #155e75;
-            border-radius: 999px;
-            display: inline-block;
-            font-weight: 800;
-            padding: .28rem .7rem;
-            margin-bottom: .6rem;
-        }
-        .section-title {
-            color: #155e75;
-            font-weight: 800;
-            font-size: 1.25rem;
-            margin: 1rem 0 .4rem 0;
-        }
-        .report-box {
-            background: rgba(255,255,255,.92);
-            border: 1px solid var(--bio-line);
-            border-radius: 12px;
-            padding: 1rem;
-        }
-        div[data-testid="stDataFrame"] {
-            border: 1px solid var(--bio-line);
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        @media (max-width: 900px) {
-            .guide-grid {
-                grid-template-columns: 1fr;
+    def add(test: str, sample: str, method: str, reason: str, validator: str = "Bacteriologo/laboratorista clinico"):
+        rows.append(
+            {
+                "Examen sugerido": test,
+                "Tipo de muestra": sample,
+                "Metodo sugerido": method,
+                "Justificacion": reason,
+                "Validacion": validator,
             }
-            .hero h1 {
-                font-size: 2.2rem;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        )
+
+    if "Inflamatorio" in profiles or "fiebre" in lab_text or "dolor" in lab_text:
+        add("PCR cuantitativa", "Suero o plasma", "Inmunoensayo/ELISA", "Evalua magnitud de respuesta inflamatoria.")
+        add("VSG", "Sangre total", "Metodo hematologico", "Apoya seguimiento de inflamacion persistente.")
+        add("Hemograma con diferencial", "Sangre total", "Hematologia automatizada", "Permite correlacionar leucocitosis, neutrofilia o linfocitosis.")
+    if "Infeccioso" in profiles or "infeccion" in lab_text or "sepsis" in lab_text:
+        add("Cultivo segun foco", "Muestra del foco sospechoso", "Cultivo microbiologico", "Busca agente etiologico y permite antibiograma.")
+        add("Antibiograma si hay aislamiento", "Aislado bacteriano", "CLSI/EUCAST institucional", "Orienta sensibilidad/resistencia; no reemplaza prescripcion medica.")
+        add("Procalcitonina", "Suero o plasma", "Inmunoensayo", "Puede apoyar sospecha bacteriana sistemica segun contexto.")
+    if "Metabolico" in profiles or "lactato" in lab_text or "glucosa" in lab_text:
+        add("Glucosa", "Suero o plasma", "Quimica clinica", "Apoya evaluacion metabolica inicial.")
+        add("Lactato", "Sangre total/plasma", "Quimica clinica o gasometria", "Puede alertar hipoperfusion o alteracion metabolica.")
+    if "Tumoral/proliferativo" in profiles:
+        add("LDH", "Suero", "Quimica clinica", "Marcador inespecifico de dano tisular o alta actividad celular.")
+        add("Panel molecular dirigido", "Tejido/sangre segun indicacion", "qPCR/secuenciacion", "Explora biomarcadores de proliferacion con validacion especializada.")
+    if "Molecular/genetico" in profiles:
+        add("Panel genetico validado", "Sangre/saliva/tejido", "Secuenciacion/qPCR", "Prioriza genes candidatos y requiere consentimiento/validacion.")
+
+    if not rows:
+        add("Hemograma, PCR y panel metabolico basico", "Sangre/suero", "Metodos validados", "Panel inicial para orientar interpretacion laboratorial.")
+
+    return pd.DataFrame(rows)
+
+
+def fallback_treatment_orientation(analysis: dict) -> list[str]:
+    categories = {row.get("Categoria", "").lower() for row in analysis.get("candidates", [])}
+    suggestions = []
+    if "inflamacion" in categories:
+        suggestions.append("Correlacionar con PCR, VSG, hemograma, cultivos o pruebas inmunologicas segun sospecha.")
+    if "metabolismo" in categories:
+        suggestions.append("Revisar glucosa, lactato, estado metabolico y tendencia de resultados.")
+    if "ciclo celular" in categories:
+        suggestions.append("Considerar validacion por patologia/genetica molecular si hay sospecha proliferativa.")
+    suggestions.append("No seleccionar antibiotico, dosis ni duracion sin cultivo/antibiograma, guias institucionales y medico tratante.")
+    return suggestions
 
 
 def metric_card(label: str, value: str) -> None:
     st.markdown(
         f"""
-        <div class="metric-card">
-            <div class="metric-label">{label}</div>
-            <div class="metric-value">{value}</div>
+        <div class="chat-card">
+            <div class="small-title">{label}</div>
+            <strong>{value}</strong>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-def guide_card(title: str, text: str) -> str:
-    """Devuelve una tarjeta HTML de guia para explicar el flujo."""
-
-    return f'<div class="guide-card"><strong>{title}</strong><span>{text}</span></div>'
-
-
-def step_title(number: int, title: str) -> None:
-    """Muestra un titulo numerado dentro del formulario."""
-
-    st.markdown(f'<div class="step-title">{number}. {title}</div>', unsafe_allow_html=True)
-
-
-def field_note(text: str) -> None:
-    """Muestra una nota breve debajo de campos amplios."""
-
-    st.markdown(f'<div class="field-note">{text}</div>', unsafe_allow_html=True)
-
-
-def pill_class(value: str) -> str:
-    """Asigna color visual para niveles bajo, medio/moderado y alto."""
-
-    normalized = value.lower()
-    if "alto" in normalized:
-        return "pill-high"
-    if "medio" in normalized or "moderado" in normalized:
-        return "pill-mid"
-    if "bajo" in normalized:
-        return "pill-low"
-    return "pill-blue"
-
-
-def executive_summary(summary: dict, analysis: dict) -> None:
-    """Muestra una lectura ejecutiva del caso para exposicion."""
-
-    risk = summary["risk"]
-    confidence = summary["confidence"]
-    molecular_class = summary["molecular_class"]
-    candidate_count = len(analysis["candidates"])
-    pathway_count = len(analysis["altered_pathways"])
-
-    st.markdown(
-        f"""
-        <div class="executive-card">
-            <h3>Resumen ejecutivo del caso simulado</h3>
-            <p>
-                BioNexus AI integro los datos clinicos y multi-omicos ingresados.
-                El caso se clasifica como <strong>{molecular_class}</strong>, con
-                <strong>{candidate_count}</strong> biomarcador(es) candidato(s) y
-                <strong>{pathway_count}</strong> ruta(s) o proceso(s) posiblemente alterado(s).
-            </p>
-            <span class="status-pill {pill_class(risk)}">Riesgo academico: {risk}</span>
-            <span class="status-pill {pill_class(confidence)}">Confianza: {confidence}</span>
-            <span class="status-pill pill-blue">Resultado simulado</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def fallback_treatment_orientation(analysis: dict) -> list[str]:
-    """Genera orientacion academica si el motor de analisis aun no la trae."""
-
-    categories = {
-        row.get("Categoria", "").lower()
-        for row in analysis.get("candidates", [])
-        if row.get("Categoria") and row.get("Categoria") != "no clasificado"
-    }
-    suggestions = []
-
-    if "inflamacion" in categories:
-        suggestions.append(
-            "Correlacionar hallazgos inflamatorios con PCR, VSG, hemograma, cultivo u otros estudios segun criterio profesional."
-        )
-    if "ciclo celular" in categories:
-        suggestions.append(
-            "Considerar revision interdisciplinaria y validacion molecular si el caso simula proliferacion celular o proceso tumoral."
-        )
-    if "metabolismo" in categories:
-        suggestions.append(
-            "Explorar seguimiento metabolico con glucosa, lactato, perfil energetico u otras pruebas complementarias segun el contexto."
-        )
-    if "reparacion adn" in categories:
-        suggestions.append(
-            "Plantear validacion genomica y consejeria genetica en un escenario real antes de decisiones preventivas o terapeuticas."
-        )
-    if "estres celular" in categories:
-        suggestions.append(
-            "Correlacionar posible estres celular o hipoxia con datos clinicos, imagenologicos y de laboratorio."
-        )
-    if not suggestions:
-        suggestions.append(
-            "Ampliar datos clinicos, laboratorio y biomarcadores antes de proponer una orientacion terapeutica academica."
-        )
-
-    suggestions.append(
-        "Orientacion no prescriptiva: BioNexus AI no formula tratamientos, dosis ni conductas clinicas; organiza hipotesis para revision profesional."
-    )
-    return suggestions
-
-
-def clinical_support_notice() -> None:
-    st.markdown(
-        """
-        <div class="callout">
-        <span class="support-badge">Apoyo interpretativo supervisado</span><br>
-        BioNexus AI organiza datos clinicos, preanaliticos, laboratoriales y multi-omicos para apoyar
-        la interpretacion del bacteriologo/laboratorista clinico. El informe debe ser revisado,
-        validado y liberado por el profesional responsable y correlacionado con el medico tratante.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def build_network_figure(candidates: list[dict], pathways: list[dict]) -> go.Figure:
-    """Dibuja una red sencilla entre biomarcadores candidatos y rutas."""
-
-    nodes = []
-    edges = []
-
-    for row in candidates:
-        marker = row["Biomarcador candidato"]
-        pathway = row["Ruta asociada"]
-        if pathway == "requiere anotacion externa":
-            continue
-        nodes.extend([marker, pathway])
-        edges.append((marker, pathway))
-
-    unique_nodes = list(dict.fromkeys(nodes))[:18]
-    if not unique_nodes:
-        fig = go.Figure()
-        fig.add_annotation(text="No hay biomarcadores suficientes para construir la red.", showarrow=False)
-        fig.update_layout(height=360, margin=dict(l=20, r=20, t=20, b=20))
-        return fig
-
-    marker_nodes = [node for node in unique_nodes if any(node == row["Biomarcador candidato"] for row in candidates)]
-    pathway_nodes = [node for node in unique_nodes if node not in marker_nodes]
-
-    positions = {}
-    for index, node in enumerate(marker_nodes):
-        positions[node] = (0.15, 1 - (index + 1) / (len(marker_nodes) + 1))
-    for index, node in enumerate(pathway_nodes):
-        positions[node] = (0.85, 1 - (index + 1) / (len(pathway_nodes) + 1))
-
-    edge_x, edge_y = [], []
-    for start, end in edges:
-        if start in positions and end in positions:
-            x0, y0 = positions[start]
-            x1, y1 = positions[end]
-            edge_x += [x0, x1, None]
-            edge_y += [y0, y1, None]
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=edge_x,
-            y=edge_y,
-            mode="lines",
-            line=dict(width=1.4, color="#94a3b8"),
-            hoverinfo="none",
-        )
-    )
-
-    for group_name, group_nodes, color in [
-        ("Biomarcadores", marker_nodes, "#0f766e"),
-        ("Rutas", pathway_nodes, "#7c3aed"),
-    ]:
-        fig.add_trace(
-            go.Scatter(
-                x=[positions[node][0] for node in group_nodes],
-                y=[positions[node][1] for node in group_nodes],
-                mode="markers+text",
-                marker=dict(size=22, color=color, line=dict(color="white", width=2)),
-                text=group_nodes,
-                textposition="middle right" if group_name == "Biomarcadores" else "middle left",
-                name=group_name,
-            )
-        )
-
-    fig.update_layout(
-        height=430,
-        margin=dict(l=20, r=20, t=20, b=20),
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        plot_bgcolor="rgba(255,255,255,0)",
-        paper_bgcolor="rgba(255,255,255,0)",
-        legend=dict(orientation="h", y=1.04, x=0),
-    )
-    return fig
-
-
-render_styles()
-
-example = load_example_case()
-
-with st.sidebar:
-    st.header("Panel de trabajo")
-    use_example = st.toggle("Cargar caso de ejemplo", value=True)
-    st.caption("Usa el caso de ejemplo o escribe tus propios datos simulados.")
-    st.divider()
-    st.markdown("**Flujo sugerido**")
-    st.write("1. Completa datos clinicos.")
-    st.write("2. Revisa el panel recomendado.")
-    st.write("3. Edita marcadores si lo necesitas.")
-    st.write("4. Analiza y descarga el reporte.")
-    st.divider()
-    st.info("Prototipo academico. No reemplaza criterio clinico ni profesional.")
-
-source = example if use_example else {}
-report_datetime = current_report_datetime()
-
-st.markdown(
-    """
-    <div class="hero">
-        <h1>BioNexus AI</h1>
-        <p>Informe academico de apoyo diagnostico y terapeutico basado en integracion multi-omica.</p>
-        <p><strong>Genomica | Transcriptomica | Proteomica | Metabolomica | Datos clinicos</strong></p>
-    </div>
-    <div class="warning">Herramienta de apoyo interpretativo laboratorial. Requiere validacion y liberacion por bacteriologo/laboratorista clinico responsable.</div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div class="guide-grid">
-    """
-    + guide_card(
-        "Que vas a ingresar",
-        "Datos administrativos, muestra, fase preanalitica, sintomas, laboratorio y marcadores omicos.",
-    )
-    + guide_card(
-        "Como escribirlos",
-        "Separa cada dato con coma o salto de linea. Ejemplo: IL6, TNF, CRP.",
-    )
-    + guide_card(
-        "Que entrega el sistema",
-        "Panel recomendado, alertas, hipotesis diagnostica, orientacion supervisada y reporte PDF.",
-    )
-    + """
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown('<div class="section-title">Formulario guiado de ingreso de datos</div>', unsafe_allow_html=True)
-clinical_support_notice()
-
-with st.form("case_form"):
-    step_title(1, "Datos administrativos del informe")
-    st.markdown(
-        '<div class="mini-note">Usa datos simulados o anonimizados. Este encabezado permite que el informe se vea mas cercano a un reporte academico de laboratorio.</div>',
-        unsafe_allow_html=True,
-    )
-    patient_name = st.text_input(
-        "Nombre del paciente",
-        value=source.get("patient_name", "Paciente simulado"),
-        placeholder="Ejemplo: Paciente simulado 01",
-    )
-
-    age = st.number_input("Edad del paciente", min_value=0, max_value=120, value=int(source.get("age", 35)))
-
-    patient_gender = st.selectbox(
-        "Genero del paciente",
-        ["Femenino", "Masculino", "No binario", "Otro", "No informado"],
-        index=["Femenino", "Masculino", "No binario", "Otro", "No informado"].index(
-            source.get("patient_gender", source.get("sex", "No informado"))
-        )
-        if source.get("patient_gender", source.get("sex", "No informado"))
-        in ["Femenino", "Masculino", "No binario", "Otro", "No informado"]
-        else 4,
-    )
-
-    patient_id = st.text_input(
-        "ID del paciente o muestra",
-        value=source.get("patient_id", "BNX-0001"),
-        placeholder="Ejemplo: BNX-0001",
-    )
-
-    st.text_input("Fecha y hora automatica de expedicion", value=report_datetime, disabled=True)
-    field_note("La fecha y hora se generan automaticamente al cargar o actualizar la app.")
-
-    lab_name = st.text_input("Nombre del laboratorio", value=LAB_NAME)
-
-    bacteriologist_name = st.text_input(
-        "Nombre del bacteriologo a cargo",
-        value=source.get("bacteriologist_name", ""),
-        placeholder="Nombre del profesional",
-    )
-
-    step_title(2, "Datos de muestra y fase preanalitica")
-    sample_a, sample_b = st.columns(2)
-    sample_type = sample_a.selectbox(
-        "Tipo de muestra",
-        ["Sangre", "Suero", "Plasma", "Tejido", "Orina", "Hisopado", "Otro"],
-    )
-    sample_quality = sample_b.selectbox(
-        "Calidad de muestra",
-        ["Adecuada", "Hemolizada", "Lipemica", "Insuficiente"],
-    )
-    sample_c, sample_d = st.columns(2)
-    collection_date = sample_c.date_input("Fecha de toma de muestra")
-    reception_date = sample_d.date_input("Fecha de recepcion")
-    method_used = st.selectbox(
-        "Metodo usado",
-        ["PCR", "qPCR", "ELISA", "Secuenciacion", "Espectrometria", "Inmunoensayo", "Otro"],
-    )
-    preanalytical_observations = st.text_area(
-        "Observaciones preanaliticas",
-        placeholder="Ejemplo: muestra recibida en cadena de frio, volumen adecuado, leve hemolisis",
-    )
-
-    step_title(3, "Resultados del laboratorio")
-    lab_results = st.text_area(
-        "Resultados del laboratorio",
-        value=join_items(source.get("lab_results", [])),
-        placeholder="PCR elevada, VSG elevada, LDH elevada",
-    )
-    lab_a, lab_b, lab_c = st.columns([1.2, 1, 1])
-    reference_values = lab_a.text_input(
-        "Valores de referencia",
-        placeholder="Ejemplo: PCR < 5 mg/L; lactato 0.5-2.2 mmol/L",
-    )
-    units = lab_b.text_input("Unidades", placeholder="mg/L, mmol/L, copias/mL")
-    result_status = lab_c.selectbox("Resultado", ["Normal", "Anormal", "Critico"])
-    field_note("Estos datos permiten reglas por rango, metodo, estado del resultado y calidad de muestra.")
-
-    step_title(4, "Sintomas del paciente")
-    symptoms = st.text_area(
-        "Sintomas del paciente",
-        value=join_items(source.get("symptoms", [])),
-        placeholder="fatiga, fiebre, dolor articular",
-    )
-    field_note("Escribe sintomas separados por comas. Ejemplo: fatiga, fiebre, dolor articular.")
-
-    with st.expander("Contexto adicional opcional para orientar el panel"):
-        col_b, col_c = st.columns([1, 2])
-        sex = col_b.selectbox(
-            "Sexo biologico reportado",
-            ["Femenino", "Masculino", "Intersexual", "No informado"],
-            index=["Femenino", "Masculino", "Intersexual", "No informado"].index(
-                source.get("sex", patient_gender if patient_gender in ["Femenino", "Masculino"] else "No informado")
-            )
-            if source.get("sex", patient_gender if patient_gender in ["Femenino", "Masculino"] else "No informado")
-            in ["Femenino", "Masculino", "Intersexual", "No informado"]
-            else 3,
-        )
-        presumptive_diagnosis = col_c.text_input(
-            "Diagnostico presuntivo o pregunta de investigacion",
-            value=source.get("presumptive_diagnosis", ""),
-            placeholder="Ejemplo: sindrome inflamatorio en estudio",
-        )
-        field_note("Este contexto ayuda a recomendar marcadores, pero no se interpreta como diagnostico definitivo.")
-
-    preliminary_case = {
-        "presumptive_diagnosis": presumptive_diagnosis,
-        "symptoms": parse_items(symptoms),
-        "lab_results": parse_items(lab_results),
-    }
-    marker_recommendations = recommend_marker_panel(preliminary_case)
-    recommended_markers = marker_recommendations["recommended_markers"]
-
-    step_title(5, "Panel sugerido por BioNexus AI")
-    st.markdown(
-        '<div class="mini-note">Segun el contexto clinico simulado, la app recomienda marcadores candidatos y explica por que pueden ser utiles para una exploracion academica. Puedes aceptar el panel o editarlo.</div>',
-        unsafe_allow_html=True,
-    )
-    recommendation_df = pd.DataFrame(marker_recommendations["recommendation_rows"])
-    st.dataframe(recommendation_df, use_container_width=True, hide_index=True)
-    use_recommended_panel = st.checkbox(
-        "Usar automaticamente este panel recomendado como punto de partida",
-        value=True,
-    )
-
-    genomic_default = recommended_markers["genomic"] if use_recommended_panel else source.get("genomic", [])
-    transcriptomic_default = (
-        recommended_markers["transcriptomic"] if use_recommended_panel else source.get("transcriptomic", [])
-    )
-    proteomic_default = recommended_markers["proteomic"] if use_recommended_panel else source.get("proteomic", [])
-    metabolomic_default = (
-        recommended_markers["metabolomic"] if use_recommended_panel else source.get("metabolomic", [])
-    )
-
-    step_title(6, "Datos omicos editables")
-    st.markdown(
-        '<div class="mini-note">Estos campos se llenan con la recomendacion automatica. El bacteriologo, bioinformatico o estudiante puede modificar, agregar o retirar marcadores antes de analizar.</div>',
-        unsafe_allow_html=True,
-    )
-    col_1, col_2 = st.columns(2)
-    genomic = col_1.text_area(
-        "Genomica - variantes, mutaciones o genes alterados",
-        value=join_items(genomic_default),
-        placeholder="TP53, BRCA1, EGFR",
-    )
-    col_1.caption("Ejemplo: TP53, BRCA1, EGFR. Representa genes con variantes o alteraciones simuladas.")
-    transcriptomic = col_2.text_area(
-        "Transcriptomica - genes sobreexpresados o subexpresados",
-        value=join_items(transcriptomic_default),
-        placeholder="IL6, TNF, MKI67",
-    )
-    col_2.caption("Ejemplo: IL6, TNF, MKI67. Representa cambios en expresion genica.")
-
-    col_3, col_4 = st.columns(2)
-    proteomic = col_3.text_area(
-        "Proteomica - proteinas aumentadas o disminuidas",
-        value=join_items(proteomic_default),
-        placeholder="CRP, CXCL8, LDHA",
-    )
-    col_3.caption("Ejemplo: CRP, CXCL8, LDHA. Representa proteinas alteradas en la muestra.")
-    metabolomic = col_4.text_area(
-        "Metabolomica - metabolitos alterados",
-        value=join_items(metabolomic_default),
-        placeholder="Lactato, Glucosa, ATP",
-    )
-    col_4.caption("Ejemplo: Lactato, Glucosa, ATP. Representa metabolitos energeticos o de interes.")
-
-    submitted = st.form_submit_button("Analizar caso simulado y generar reporte", type="primary")
-
-
-case = {
-    "patient_name": patient_name,
-    "patient_gender": patient_gender,
-    "patient_id": patient_id,
-    "report_datetime": report_datetime,
-    "lab_name": lab_name,
-    "bacteriologist_name": bacteriologist_name,
-    "sample_type": sample_type,
-    "collection_date": str(collection_date),
-    "reception_date": str(reception_date),
-    "sample_quality": sample_quality,
-    "method_used": method_used,
-    "reference_values": reference_values,
-    "units": units,
-    "result_status": result_status,
-    "preanalytical_observations": preanalytical_observations,
-    "age": age,
-    "sex": sex,
-    "presumptive_diagnosis": presumptive_diagnosis,
-    "symptoms": parse_items(symptoms),
-    "genomic": parse_items(genomic),
-    "transcriptomic": parse_items(transcriptomic),
-    "proteomic": parse_items(proteomic),
-    "metabolomic": parse_items(metabolomic),
-    "lab_results": parse_items(lab_results),
-    "recommendation_rows": marker_recommendations["recommendation_rows"],
-}
-
-if submitted or use_example:
-    analysis = analyze_case(case)
-    if not analysis.get("treatment_orientation"):
-        analysis["treatment_orientation"] = fallback_treatment_orientation(analysis)
-    evidence_rows = retrieve_curated_evidence(case, analysis)
-    ai_summary = build_ai_interpretive_summary(case, analysis, evidence_rows)
-    case["evidence_rows"] = evidence_rows
-    case["ai_summary"] = ai_summary
-    summary = analysis["summary"]
-
+def build_bar_figure(analysis: dict) -> go.Figure:
     counts_df = pd.DataFrame(
         {
             "Tipo de dato": list(analysis["omics_counts"].keys()),
             "Alteraciones": list(analysis["omics_counts"].values()),
         }
     )
-    bar_fig = go.Figure(
+    fig = go.Figure(
         data=[
             go.Bar(
                 x=counts_df["Tipo de dato"],
                 y=counts_df["Alteraciones"],
-                marker_color=["#0f766e", "#0891b2", "#7c3aed", "#f59e0b"],
+                marker_color=["#0f766e", "#0891b2", "#12c7bd", "#22c55e"],
             )
         ]
     )
-    bar_fig.update_layout(
-        title="Numero de alteraciones por tipo de dato",
-        height=380,
-        margin=dict(l=20, r=20, t=60, b=20),
-        yaxis_title="Cantidad",
-        xaxis_title="",
+    fig.update_layout(
+        title="Alteraciones por tipo de dato",
+        height=340,
+        margin=dict(l=20, r=20, t=55, b=20),
         plot_bgcolor="rgba(255,255,255,0)",
         paper_bgcolor="rgba(255,255,255,0)",
     )
+    return fig
 
-    candidates_df = pd.DataFrame(analysis["candidates"])
-    pathway_df = pd.DataFrame(analysis["altered_pathways"])
 
-    st.markdown('<div class="section-title">Informe BioNexus AI</div>', unsafe_allow_html=True)
+def base_case_from_intake(intake: dict) -> dict:
+    return {
+        "patient_name": intake["patient_name"],
+        "patient_gender": intake["patient_gender"],
+        "patient_id": intake["patient_id"],
+        "report_datetime": intake["report_datetime"],
+        "lab_name": LAB_NAME,
+        "bacteriologist_name": intake.get("bacteriologist_name", ""),
+        "age": intake["age"],
+        "sex": intake["patient_gender"] if intake["patient_gender"] in ["Femenino", "Masculino"] else "No informado",
+        "presumptive_diagnosis": intake.get("presumptive_diagnosis", ""),
+        "symptoms": parse_items(intake.get("symptoms", "")),
+        "lab_results": parse_items(intake.get("lab_results", "")),
+        "sample_type": intake.get("sample_type", "Sangre"),
+        "collection_date": intake.get("collection_date", ""),
+        "reception_date": intake.get("reception_date", ""),
+        "sample_quality": intake.get("sample_quality", "Adecuada"),
+        "method_used": intake.get("method_used", "Inmunoensayo"),
+        "reference_values": intake.get("reference_values", ""),
+        "units": intake.get("units", ""),
+        "result_status": intake.get("result_status", "Normal"),
+        "preanalytical_observations": intake.get("preanalytical_observations", ""),
+        "genomic": parse_items(intake.get("genomic", "")),
+        "transcriptomic": parse_items(intake.get("transcriptomic", "")),
+        "proteomic": parse_items(intake.get("proteomic", "")),
+        "metabolomic": parse_items(intake.get("metabolomic", "")),
+    }
 
-    st.markdown('<div class="small-title">Nombre del paciente</div>', unsafe_allow_html=True)
-    st.write(case["patient_name"] or "No informado")
 
-    st.markdown('<div class="small-title">Edad del paciente</div>', unsafe_allow_html=True)
-    st.write(f"{case['age']} anos")
+def enrich_case(case: dict) -> tuple[dict, dict, pd.DataFrame, list[dict], list[str]]:
+    marker_recommendations = recommend_marker_panel(case)
+    recommended = marker_recommendations["recommended_markers"]
+    case.setdefault("genomic", recommended.get("genomic", []))
+    case.setdefault("transcriptomic", recommended.get("transcriptomic", []))
+    case.setdefault("proteomic", recommended.get("proteomic", []))
+    case.setdefault("metabolomic", recommended.get("metabolomic", []))
+    case["recommendation_rows"] = marker_recommendations["recommendation_rows"]
+    analysis = analyze_case(case)
+    if not analysis.get("treatment_orientation"):
+        analysis["treatment_orientation"] = fallback_treatment_orientation(analysis)
+    evidence_rows = retrieve_curated_evidence(case, analysis)
+    ai_summary = build_ai_summary(case, analysis, evidence_rows)
+    exams_df = recommended_lab_tests(case, marker_recommendations, evidence_rows)
+    case["evidence_rows"] = evidence_rows
+    case["ai_summary"] = ai_summary
+    case["recommended_exams"] = exams_df.to_dict("records")
+    return analysis, marker_recommendations, exams_df, evidence_rows, ai_summary
 
-    st.markdown('<div class="small-title">Genero del paciente</div>', unsafe_allow_html=True)
-    st.write(case["patient_gender"] or "No informado")
 
-    st.markdown('<div class="small-title">ID del paciente o muestra</div>', unsafe_allow_html=True)
-    st.write(case["patient_id"] or "No informado")
-
-    st.markdown('<div class="small-title">Fecha y hora automatica de expedicion</div>', unsafe_allow_html=True)
-    st.write(case["report_datetime"])
-
-    st.markdown('<div class="small-title">Nombre del laboratorio</div>', unsafe_allow_html=True)
-    st.write(case["lab_name"] or LAB_NAME)
-
-    st.markdown('<div class="small-title">Nombre del bacteriologo a cargo</div>', unsafe_allow_html=True)
-    st.write(case["bacteriologist_name"] or "No informado")
-
-    st.markdown('<div class="small-title">Tipo de muestra</div>', unsafe_allow_html=True)
-    st.write(case["sample_type"])
-
-    st.markdown('<div class="small-title">Fecha de toma de muestra</div>', unsafe_allow_html=True)
-    st.write(case["collection_date"])
-
-    st.markdown('<div class="small-title">Fecha de recepcion</div>', unsafe_allow_html=True)
-    st.write(case["reception_date"])
-
-    st.markdown('<div class="small-title">Calidad de muestra</div>', unsafe_allow_html=True)
-    st.write(case["sample_quality"])
-
-    st.markdown('<div class="small-title">Metodo usado</div>', unsafe_allow_html=True)
-    st.write(case["method_used"])
-
-    st.markdown('<div class="small-title">Sintomas del paciente</div>', unsafe_allow_html=True)
-    st.write(", ".join(case["symptoms"]) or "No informado")
-
-    st.markdown('<div class="small-title">Resultados del laboratorio</div>', unsafe_allow_html=True)
-    st.write(", ".join(case["lab_results"]) or "No informado")
-
-    st.markdown('<div class="small-title">Valores de referencia</div>', unsafe_allow_html=True)
-    st.write(case["reference_values"] or "No informado")
-
-    st.markdown('<div class="small-title">Unidades</div>', unsafe_allow_html=True)
-    st.write(case["units"] or "No informado")
-
-    st.markdown('<div class="small-title">Resultado normal/anormal/critico</div>', unsafe_allow_html=True)
-    st.write(case["result_status"])
-
-    st.markdown('<div class="small-title">Observaciones preanaliticas</div>', unsafe_allow_html=True)
-    st.write(case["preanalytical_observations"] or "Sin observaciones")
-
-    st.markdown('<div class="section-title">Panel sugerido por BioNexus AI</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="callout">Este panel se genera con reglas academicas basadas en sintomas, diagnostico presuntivo y resultados de laboratorio. No equivale a una orden clinica ni a una guia terapeutica real.</div>',
-        unsafe_allow_html=True,
-    )
-    st.dataframe(recommendation_df, width="stretch", hide_index=True)
-    profile_text = ", ".join(marker_recommendations["matched_profiles"])
-    st.write(f"**Perfiles detectados:** {profile_text}")
-
-    st.markdown('<div class="section-title">IA con base de conocimiento curada</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="callout">Esta capa simula un motor RAG clinico seguro: recupera evidencia desde una base curada y versionable, no desde internet abierto. En una fase real, estas fuentes se sincronizarian con repositorios oficiales y guias institucionales.</div>',
-        unsafe_allow_html=True,
-    )
-    for item in ai_summary:
-        st.write(f"- {item}")
-    evidence_df = pd.DataFrame(evidence_rows)
+def show_ai_response(case: dict, analysis: dict, exams_df: pd.DataFrame, evidence_rows: list[dict], ai_summary: list[str]) -> None:
+    st.markdown('<div class="ai-bubble"><strong>BioNexus AI responde</strong></div>', unsafe_allow_html=True)
+    for line in ai_summary:
+        st.write(f"- {line}")
+    st.markdown('<div class="section-title">Examenes de laboratorio relevantes y justificacion</div>', unsafe_allow_html=True)
+    st.dataframe(exams_df, width="stretch", hide_index=True)
+    st.markdown('<div class="section-title">Evidencia curada recuperada</div>', unsafe_allow_html=True)
     st.dataframe(
-        evidence_df[["profile", "clinical_use", "markers", "limitations", "source", "source_url"]],
+        pd.DataFrame(evidence_rows)[["profile", "clinical_use", "markers", "limitations", "source", "source_url"]],
         width="stretch",
         hide_index=True,
     )
+    st.info(f"Se guardo el ingreso con ID: {case['patient_id']}. El paciente puede regresar para seguimiento.")
 
-    st.markdown('<div class="section-title">Datos omicos editables</div>', unsafe_allow_html=True)
-    omics_df = pd.DataFrame(
-        [
-            {"Tipo de dato": "Genomica", "Marcadores ingresados": ", ".join(case["genomic"]) or "No informado"},
-            {
-                "Tipo de dato": "Transcriptomica",
-                "Marcadores ingresados": ", ".join(case["transcriptomic"]) or "No informado",
-            },
-            {"Tipo de dato": "Proteomica", "Marcadores ingresados": ", ".join(case["proteomic"]) or "No informado"},
-            {
-                "Tipo de dato": "Metabolomica",
-                "Marcadores ingresados": ", ".join(case["metabolomic"]) or "No informado",
-            },
-        ]
-    )
-    st.dataframe(omics_df, width="stretch", hide_index=True)
 
-    st.markdown('<div class="section-title">Resultados del analisis academico</div>', unsafe_allow_html=True)
-    executive_summary(summary, analysis)
+def show_interpretation(case: dict) -> None:
+    analysis, marker_recommendations, exams_df, evidence_rows, ai_summary = enrich_case(case)
+    summary = analysis["summary"]
+    st.markdown('<div class="section-title">Interpretacion profesional para liberacion</div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        metric_card("Alerta", summary.get("alert", "No informado"))
+    with c2:
+        metric_card("Confianza", summary.get("confidence", "No informado"))
+    with c3:
+        metric_card("Clasificacion", summary.get("molecular_class", "No informado"))
 
-    m1, m2, m3, m4 = st.columns(4)
-    with m1:
-        metric_card("Riesgo academico", summary["risk"])
-    with m2:
-        metric_card("Nivel de confianza", summary["confidence"])
-    with m3:
-        metric_card("Biomarcadores", str(len(analysis["candidates"])))
-    with m4:
-        metric_card("Clasificacion", summary["molecular_class"])
-
-    st.markdown('<div class="small-title">Nivel de alerta</div>', unsafe_allow_html=True)
-    st.write(summary.get("alert", "No informado"))
-
-    st.markdown('<div class="small-title">Interpretacion general</div>', unsafe_allow_html=True)
+    st.markdown('<div class="small-title">Interpretacion laboratorial</div>', unsafe_allow_html=True)
     for item in analysis["interpretations"]:
         st.write(f"- {item}")
-    st.markdown(
-        '<div class="callout">Las interpretaciones se expresan como posibles asociaciones. Requieren validacion experimental, bioinformatica y revision profesional.</div>',
-        unsafe_allow_html=True,
-    )
-
     st.markdown('<div class="small-title">Hipotesis diagnostica</div>', unsafe_allow_html=True)
     for item in analysis.get("diagnostic_hypothesis", []):
         st.write(f"- {item}")
-
-    st.markdown('<div class="small-title">Rutas posiblemente alteradas</div>', unsafe_allow_html=True)
-    if pathway_df.empty:
-        st.info("No se identificaron rutas suficientes con las reglas actuales.")
-    else:
-        st.dataframe(pathway_df, width="stretch", hide_index=True)
-
-    st.markdown('<div class="small-title">Tabla de biomarcadores candidatos</div>', unsafe_allow_html=True)
-    st.dataframe(candidates_df, width="stretch", hide_index=True)
-
-    category_df = (
-        candidates_df.groupby("Categoria", as_index=False)
-        .size()
-        .rename(columns={"size": "Numero de biomarcadores"})
-        .sort_values("Numero de biomarcadores", ascending=False)
-    )
-    st.markdown('<div class="small-title">Distribucion por categoria biologica</div>', unsafe_allow_html=True)
-    st.dataframe(category_df, width="stretch", hide_index=True)
-
-    left, right = st.columns([.95, 1.05])
-    with left:
-        st.plotly_chart(bar_fig, width="stretch")
-    with right:
-        st.plotly_chart(
-            build_network_figure(analysis["candidates"], analysis["altered_pathways"]),
-            width="stretch",
-        )
-
-    st.markdown('<div class="section-title">Posible orientacion terapeutica academica</div>', unsafe_allow_html=True)
+    st.markdown('<div class="small-title">Orientacion terapeutica supervisada</div>', unsafe_allow_html=True)
     for item in analysis.get("treatment_orientation", []):
         st.write(f"- {item}")
-    st.warning(
-        "Esta orientacion no prescribe tratamientos, dosis ni conductas clinicas. Debe ser revisada por profesionales competentes."
-    )
+    st.warning("No prescribe antibiotico, dosis ni duracion. Validar con cultivo/antibiograma, guias institucionales y medico tratante.")
 
-    st.markdown('<div class="section-title">Recomendaciones de seguimiento</div>', unsafe_allow_html=True)
-    for recommendation in analysis["recommendations"]:
-        st.write(f"- {recommendation}")
-    st.write("- Programar revision del caso con el equipo academico o profesional responsable.")
-    st.write("- Documentar cambios en sintomas, resultados de laboratorio y nuevos datos omicos antes de repetir el analisis.")
+    st.markdown('<div class="section-title">Biomarcadores candidatos</div>', unsafe_allow_html=True)
+    st.dataframe(pd.DataFrame(analysis["candidates"]), width="stretch", hide_index=True)
+    st.plotly_chart(build_bar_figure(analysis), width="stretch")
 
-    st.markdown('<div class="section-title">Boton para descargar el informe completo en PDF</div>', unsafe_allow_html=True)
     pdf_bytes = build_pdf(case, analysis)
     st.download_button(
-        "Descargar informe completo",
+        "Descargar informe completo para revision y liberacion",
         data=pdf_bytes,
-        file_name="informe_bionexus_ai.pdf",
+        file_name=f"informe_bionexus_{case['patient_id']}.pdf",
         mime="application/pdf",
         type="primary",
     )
 
-    with st.expander("Guion breve para explicar este resultado en una exposicion"):
-        st.write(
-            "BioNexus AI integra datos clinicos y multi-omicos simulados para proponer biomarcadores candidatos. "
-            "El sistema usa reglas transparentes, no modelos clinicos reales, por lo que sus resultados se deben "
-            "leer como posibles asociaciones academicas. La clasificacion molecular y el nivel de riesgo son "
-            "orientativos y requieren validacion profesional."
+
+def chat_intake_view() -> None:
+    st.markdown('<div class="section-title">Mini ingreso del paciente</div>', unsafe_allow_html=True)
+    with st.form("chat_intake_form"):
+        patient_name = st.text_input("Nombre del paciente", placeholder="Ejemplo: Paciente simulado 01")
+        age = st.number_input("Edad", min_value=0, max_value=120, value=35)
+        patient_gender = st.selectbox("Genero/Sexo", ["Femenino", "Masculino", "No binario", "Otro", "No informado"])
+        patient_id = st.text_input("ID del paciente o muestra", placeholder="Ejemplo: BNX-0001")
+        report_datetime = st.text_input("Fecha automatica", value=now_report_datetime(), disabled=True)
+        symptoms = st.text_area("Sintomatologia", placeholder="fiebre, fatiga, dolor articular")
+        presumptive_diagnosis = st.text_input("Sospecha o pregunta clinico-laboratorial", placeholder="Ejemplo: sospecha de proceso infeccioso")
+        bacteriologist_name = st.text_input("Bacteriologo a cargo", placeholder="Nombre del profesional")
+        submitted = st.form_submit_button("Enviar a BioNexus AI", type="primary")
+
+    if submitted:
+        if not patient_id.strip():
+            st.error("Debes ingresar un ID para guardar y recuperar el caso.")
+            return
+        intake = {
+            "workflow_status": "Ingreso inicial: examenes sugeridos",
+            "patient_name": patient_name,
+            "age": age,
+            "patient_gender": patient_gender,
+            "patient_id": patient_id.strip(),
+            "report_datetime": report_datetime,
+            "symptoms": symptoms,
+            "presumptive_diagnosis": presumptive_diagnosis,
+            "bacteriologist_name": bacteriologist_name,
+        }
+        case = base_case_from_intake(intake)
+        analysis, marker_recommendations, exams_df, evidence_rows, ai_summary = enrich_case(case)
+        intake["recommended_exams"] = exams_df.to_dict("records")
+        intake["recommendation_rows"] = marker_recommendations["recommendation_rows"]
+        save_patient_record(patient_id.strip(), intake)
+
+        st.markdown('<div class="user-bubble"><strong>Ingreso recibido</strong><br>BioNexus AI analiza sintomas, contexto y perfiles relevantes.</div>', unsafe_allow_html=True)
+        show_ai_response(case, analysis, exams_df, evidence_rows, ai_summary)
+
+
+def follow_up_view() -> None:
+    st.markdown('<div class="section-title">Seguimiento / datos guardados</div>', unsafe_allow_html=True)
+    saved_df = list_patient_records()
+    if not saved_df.empty:
+        st.dataframe(saved_df, width="stretch", hide_index=True)
+    else:
+        st.info("Aun no hay pacientes guardados en esta instancia.")
+
+    patient_id = st.text_input("Buscar por ID del paciente o muestra")
+    if not patient_id:
+        return
+    record = load_patient_record(patient_id.strip())
+    if not record:
+        st.error("No encontre un caso con ese ID.")
+        return
+
+    st.markdown('<div class="chat-card">Caso encontrado. Puedes completar resultados y continuar la interpretacion.</div>', unsafe_allow_html=True)
+    st.write(f"**Paciente:** {record.get('patient_name', 'No informado')}")
+    st.write(f"**Sintomatologia inicial:** {record.get('symptoms', 'No informado')}")
+    if record.get("recommended_exams"):
+        st.markdown('<div class="small-title">Examenes sugeridos previamente</div>', unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(record["recommended_exams"]), width="stretch", hide_index=True)
+
+    with st.form("follow_up_results"):
+        sample_type = st.selectbox("Tipo de muestra", ["Sangre", "Suero", "Plasma", "Tejido", "Orina", "Hisopado", "Otro"])
+        sample_quality = st.selectbox("Calidad de muestra", ["Adecuada", "Hemolizada", "Lipemica", "Insuficiente"])
+        c1, c2 = st.columns(2)
+        collection_date = c1.date_input("Fecha de toma de muestra")
+        reception_date = c2.date_input("Fecha de recepcion")
+        method_used = st.selectbox("Metodo usado", ["PCR", "qPCR", "ELISA", "Secuenciacion", "Espectrometria", "Inmunoensayo", "Otro"])
+        lab_results = st.text_area("Resultados del laboratorio", placeholder="PCR 48 mg/L, VSG 60 mm/h, lactato 3.1 mmol/L")
+        c3, c4, c5 = st.columns([1.4, 1, 1])
+        reference_values = c3.text_input("Valores de referencia", placeholder="PCR < 5 mg/L")
+        units = c4.text_input("Unidades", placeholder="mg/L")
+        result_status = c5.selectbox("Resultado", ["Normal", "Anormal", "Critico"])
+        preanalytical_observations = st.text_area("Observaciones preanaliticas")
+        st.markdown('<div class="small-title">Datos omicos si estan disponibles</div>', unsafe_allow_html=True)
+        genomic = st.text_area("Genomica", value=", ".join(record.get("genomic", [])))
+        transcriptomic = st.text_area("Transcriptomica", value=", ".join(record.get("transcriptomic", [])))
+        proteomic = st.text_area("Proteomica", value=", ".join(record.get("proteomic", [])))
+        metabolomic = st.text_area("Metabolomica", value=", ".join(record.get("metabolomic", [])))
+        submitted = st.form_submit_button("Continuar interpretacion con BioNexus AI", type="primary")
+
+    if submitted:
+        intake = {**record}
+        intake.update(
+            {
+                "workflow_status": "Resultados cargados: pendiente liberacion",
+                "sample_type": sample_type,
+                "sample_quality": sample_quality,
+                "collection_date": str(collection_date),
+                "reception_date": str(reception_date),
+                "method_used": method_used,
+                "lab_results": lab_results,
+                "reference_values": reference_values,
+                "units": units,
+                "result_status": result_status,
+                "preanalytical_observations": preanalytical_observations,
+                "genomic": genomic,
+                "transcriptomic": transcriptomic,
+                "proteomic": proteomic,
+                "metabolomic": metabolomic,
+                "report_datetime": now_report_datetime(),
+            }
         )
+        case = base_case_from_intake(intake)
+        save_patient_record(patient_id.strip(), intake)
+        show_interpretation(case)
+
+
+def safety_view() -> None:
+    st.markdown('<div class="section-title">Seguridad, trazabilidad y siguiente fase</div>', unsafe_allow_html=True)
+    st.write("- Esta version guarda datos en SQLite local de la app. En Streamlit Cloud puede ser persistencia temporal.")
+    st.write("- Para uso real se necesita login, roles, cifrado, auditoria y base de datos segura.")
+    st.write("- Debe existir estado del informe: borrador, revisado, liberado.")
+    st.write("- La IA debe usar fuentes curadas, versionadas y trazables, no internet abierto sin filtro.")
+    st.write("- Para antimicrobianos: no formula antibiotico ni dosis; exige cultivo/antibiograma, guias institucionales y validacion medica.")
+
+
+init_db()
+render_styles()
+hero()
+
+main_tab, follow_tab, safety_tab = st.tabs(["Charla con BioNexus AI", "Seguimiento / datos guardados", "Seguridad y validacion"])
+with main_tab:
+    chat_intake_view()
+with follow_tab:
+    follow_up_view()
+with safety_tab:
+    safety_view()
+
