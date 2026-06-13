@@ -169,6 +169,63 @@ def render_styles() -> None:
             font-weight: 800;
             margin-top: .25rem;
         }
+        .executive-card {
+            background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(248,250,252,.96));
+            border: 1px solid var(--bio-line);
+            border-radius: 14px;
+            padding: 1.15rem;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, .08);
+            margin: .8rem 0 1rem 0;
+        }
+        .executive-card h3 {
+            color: #0f172a;
+            margin: 0 0 .45rem 0;
+            font-size: 1.18rem;
+        }
+        .executive-card p {
+            color: #334155;
+            line-height: 1.5rem;
+            margin: .2rem 0;
+        }
+        .status-pill {
+            display: inline-block;
+            border-radius: 999px;
+            padding: .3rem .7rem;
+            font-size: .82rem;
+            font-weight: 800;
+            margin: .25rem .35rem .25rem 0;
+            border: 1px solid rgba(15,23,42,.08);
+        }
+        .pill-low {
+            background: #ecfdf5;
+            color: #047857;
+        }
+        .pill-mid {
+            background: #fffbeb;
+            color: #b45309;
+        }
+        .pill-high {
+            background: #fef2f2;
+            color: #b91c1c;
+        }
+        .pill-blue {
+            background: #eff6ff;
+            color: #1d4ed8;
+        }
+        .callout {
+            background: #f8fafc;
+            border: 1px solid #dbeafe;
+            border-left: 5px solid var(--bio-indigo);
+            border-radius: 12px;
+            padding: .9rem 1rem;
+            color: #334155;
+            margin: .7rem 0;
+        }
+        .small-title {
+            color: #155e75;
+            font-weight: 800;
+            margin: .35rem 0 .25rem 0;
+        }
         .section-title {
             color: #155e75;
             font-weight: 800;
@@ -228,6 +285,47 @@ def field_note(text: str) -> None:
     """Muestra una nota breve debajo de campos amplios."""
 
     st.markdown(f'<div class="field-note">{text}</div>', unsafe_allow_html=True)
+
+
+def pill_class(value: str) -> str:
+    """Asigna color visual para niveles bajo, medio/moderado y alto."""
+
+    normalized = value.lower()
+    if "alto" in normalized:
+        return "pill-high"
+    if "medio" in normalized or "moderado" in normalized:
+        return "pill-mid"
+    if "bajo" in normalized:
+        return "pill-low"
+    return "pill-blue"
+
+
+def executive_summary(summary: dict, analysis: dict) -> None:
+    """Muestra una lectura ejecutiva del caso para exposicion."""
+
+    risk = summary["risk"]
+    confidence = summary["confidence"]
+    molecular_class = summary["molecular_class"]
+    candidate_count = len(analysis["candidates"])
+    pathway_count = len(analysis["altered_pathways"])
+
+    st.markdown(
+        f"""
+        <div class="executive-card">
+            <h3>Resumen ejecutivo del caso simulado</h3>
+            <p>
+                BioNexus AI integro los datos clinicos y multi-omicos ingresados.
+                El caso se clasifica como <strong>{molecular_class}</strong>, con
+                <strong>{candidate_count}</strong> biomarcador(es) candidato(s) y
+                <strong>{pathway_count}</strong> ruta(s) o proceso(s) posiblemente alterado(s).
+            </p>
+            <span class="status-pill {pill_class(risk)}">Riesgo academico: {risk}</span>
+            <span class="status-pill {pill_class(confidence)}">Confianza: {confidence}</span>
+            <span class="status-pill pill-blue">Resultado simulado</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def build_network_figure(candidates: list[dict], pathways: list[dict]) -> go.Figure:
@@ -450,7 +548,9 @@ if submitted or use_example:
     analysis = analyze_case(case)
     summary = analysis["summary"]
 
-    st.markdown('<div class="section-title">Modulo de analisis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Resultados del analisis academico</div>', unsafe_allow_html=True)
+    executive_summary(summary, analysis)
+
     m1, m2, m3, m4 = st.columns(4)
     with m1:
         metric_card("Riesgo academico", summary["risk"])
@@ -486,32 +586,71 @@ if submitted or use_example:
         paper_bgcolor="rgba(255,255,255,0)",
     )
 
-    left, right = st.columns([1, 1])
-    with left:
-        st.plotly_chart(bar_fig, use_container_width=True)
-    with right:
-        st.markdown("**Interpretacion general**")
-        for item in analysis["interpretations"]:
-            st.write(f"- {item}")
-        st.markdown("**Rutas posiblemente alteradas**")
-        pathway_df = pd.DataFrame(analysis["altered_pathways"])
-        if pathway_df.empty:
-            st.info("No se identificaron rutas suficientes con las reglas actuales.")
-        else:
-            st.dataframe(pathway_df, use_container_width=True, hide_index=True)
-
-    st.markdown('<div class="section-title">Tabla de biomarcadores candidatos</div>', unsafe_allow_html=True)
     candidates_df = pd.DataFrame(analysis["candidates"])
-    st.dataframe(candidates_df, use_container_width=True, hide_index=True)
+    pathway_df = pd.DataFrame(analysis["altered_pathways"])
 
-    st.markdown('<div class="section-title">Red molecular simulada</div>', unsafe_allow_html=True)
-    st.plotly_chart(
-        build_network_figure(analysis["candidates"], analysis["altered_pathways"]),
-        use_container_width=True,
+    tab_summary, tab_markers, tab_visuals, tab_report = st.tabs(
+        ["Panorama del caso", "Biomarcadores", "Visualizaciones", "Reporte descargable"]
     )
 
-    st.markdown('<div class="section-title">Reporte final</div>', unsafe_allow_html=True)
-    with st.container(border=True):
+    with tab_summary:
+        left, right = st.columns([1.1, .9])
+        with left:
+            st.markdown('<div class="small-title">Interpretacion general</div>', unsafe_allow_html=True)
+            for item in analysis["interpretations"]:
+                st.write(f"- {item}")
+            st.markdown(
+                '<div class="callout">Las interpretaciones se expresan como posibles asociaciones. Requieren validacion experimental, bioinformatica y revision profesional.</div>',
+                unsafe_allow_html=True,
+            )
+        with right:
+            st.markdown('<div class="small-title">Rutas posiblemente alteradas</div>', unsafe_allow_html=True)
+            if pathway_df.empty:
+                st.info("No se identificaron rutas suficientes con las reglas actuales.")
+            else:
+                st.dataframe(pathway_df, use_container_width=True, hide_index=True)
+
+        st.markdown('<div class="small-title">Datos ingresados al prototipo</div>', unsafe_allow_html=True)
+        input_df = pd.DataFrame(
+            [
+                {"Campo": "Edad simulada", "Valor": str(case["age"])},
+                {"Campo": "Sexo biologico reportado", "Valor": case["sex"]},
+                {"Campo": "Diagnostico presuntivo", "Valor": case["presumptive_diagnosis"] or "No informado"},
+                {"Campo": "Sintomas o hallazgos", "Valor": ", ".join(case["symptoms"]) or "No informado"},
+                {"Campo": "Laboratorio", "Valor": ", ".join(case["lab_results"]) or "No informado"},
+            ]
+        )
+        st.dataframe(input_df, use_container_width=True, hide_index=True)
+
+    with tab_markers:
+        st.markdown('<div class="small-title">Tabla de biomarcadores candidatos</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="callout">Un biomarcador candidato no confirma enfermedad. En este prototipo indica una posible asociacion biologica para discusion academica.</div>',
+            unsafe_allow_html=True,
+        )
+        st.dataframe(candidates_df, use_container_width=True, hide_index=True)
+
+        category_df = (
+            candidates_df.groupby("Categoria", as_index=False)
+            .size()
+            .rename(columns={"size": "Numero de biomarcadores"})
+            .sort_values("Numero de biomarcadores", ascending=False)
+        )
+        st.markdown('<div class="small-title">Distribucion por categoria biologica</div>', unsafe_allow_html=True)
+        st.dataframe(category_df, use_container_width=True, hide_index=True)
+
+    with tab_visuals:
+        left, right = st.columns([.95, 1.05])
+        with left:
+            st.plotly_chart(bar_fig, use_container_width=True)
+        with right:
+            st.plotly_chart(
+                build_network_figure(analysis["candidates"], analysis["altered_pathways"]),
+                use_container_width=True,
+            )
+
+    with tab_report:
+        st.markdown('<div class="small-title">Reporte final interpretativo</div>', unsafe_allow_html=True)
         st.write(
             f"El caso presenta una **{summary['molecular_class']}** con riesgo academico simulado "
             f"**{summary['risk']}** y confianza **{summary['confidence']}**."
@@ -534,4 +673,12 @@ if submitted or use_example:
             file_name="reporte_bionexus_ai.pdf",
             mime="application/pdf",
             type="primary",
+        )
+
+    with st.expander("Guion breve para explicar este resultado en una exposicion"):
+        st.write(
+            "BioNexus AI integra datos clinicos y multi-omicos simulados para proponer biomarcadores candidatos. "
+            "El sistema usa reglas transparentes, no modelos clinicos reales, por lo que sus resultados se deben "
+            "leer como posibles asociaciones academicas. La clasificacion molecular y el nivel de riesgo son "
+            "orientativos y requieren validacion profesional."
         )
