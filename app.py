@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from modules.analyzer import analyze_case, parse_items
+from modules.analyzer import analyze_case, parse_items, recommend_marker_panel
 from modules.report import build_pdf
 
 
@@ -416,8 +416,9 @@ with st.sidebar:
     st.divider()
     st.markdown("**Flujo sugerido**")
     st.write("1. Completa datos clinicos.")
-    st.write("2. Agrega biomarcadores por tipo de dato.")
-    st.write("3. Analiza y descarga el reporte.")
+    st.write("2. Revisa el panel recomendado.")
+    st.write("3. Edita marcadores si lo necesitas.")
+    st.write("4. Analiza y descarga el reporte.")
     st.divider()
     st.info("Prototipo academico. No reemplaza criterio clinico ni profesional.")
 
@@ -449,7 +450,7 @@ st.markdown(
     )
     + guide_card(
         "Que entrega el sistema",
-        "Biomarcadores candidatos, rutas posiblemente alteradas, nivel de riesgo academico y reporte PDF.",
+        "Panel recomendado, biomarcadores candidatos, rutas posiblemente alteradas, nivel de riesgo academico y reporte PDF.",
     )
     + """
     </div>
@@ -488,21 +489,58 @@ with st.form("case_form"):
     )
     field_note("Escribe sintomas separados por comas. Ejemplo: fatiga, fiebre, dolor articular.")
 
-    step_title(2, "Datos omicos simulados")
+    step_title(2, "Resultados de laboratorio complementarios")
+    lab_results = st.text_area(
+        "Laboratorio clinico o experimental",
+        value=join_items(source.get("lab_results", [])),
+        placeholder="PCR elevada, VSG elevada, LDH elevada",
+    )
+    field_note("Ejemplo: PCR elevada, VSG elevada, LDH elevada. Estos datos ayudan a sugerir marcadores, pero no generan diagnostico.")
+
+    preliminary_case = {
+        "presumptive_diagnosis": presumptive_diagnosis,
+        "symptoms": parse_items(symptoms),
+        "lab_results": parse_items(lab_results),
+    }
+    marker_recommendations = recommend_marker_panel(preliminary_case)
+    recommended_markers = marker_recommendations["recommended_markers"]
+
+    step_title(3, "Panel sugerido por BioNexus AI")
     st.markdown(
-        '<div class="mini-note">Ingresa biomarcadores candidatos. Puedes usar genes, proteinas o metabolitos conocidos; el prototipo reconoce algunos ejemplos y deja los demas como no clasificados.</div>',
+        '<div class="mini-note">Segun el contexto clinico simulado, la app recomienda marcadores candidatos y explica por que pueden ser utiles para una exploracion academica. Puedes aceptar el panel o editarlo.</div>',
+        unsafe_allow_html=True,
+    )
+    recommendation_df = pd.DataFrame(marker_recommendations["recommendation_rows"])
+    st.dataframe(recommendation_df, use_container_width=True, hide_index=True)
+    use_recommended_panel = st.checkbox(
+        "Usar automaticamente este panel recomendado como punto de partida",
+        value=True,
+    )
+
+    genomic_default = recommended_markers["genomic"] if use_recommended_panel else source.get("genomic", [])
+    transcriptomic_default = (
+        recommended_markers["transcriptomic"] if use_recommended_panel else source.get("transcriptomic", [])
+    )
+    proteomic_default = recommended_markers["proteomic"] if use_recommended_panel else source.get("proteomic", [])
+    metabolomic_default = (
+        recommended_markers["metabolomic"] if use_recommended_panel else source.get("metabolomic", [])
+    )
+
+    step_title(4, "Datos omicos simulados editables")
+    st.markdown(
+        '<div class="mini-note">Estos campos se llenan con la recomendacion automatica. El bacteriologo, bioinformatico o estudiante puede modificar, agregar o retirar marcadores antes de analizar.</div>',
         unsafe_allow_html=True,
     )
     col_1, col_2 = st.columns(2)
     genomic = col_1.text_area(
         "Genomica - variantes, mutaciones o genes alterados",
-        value=join_items(source.get("genomic", [])),
+        value=join_items(genomic_default),
         placeholder="TP53, BRCA1, EGFR",
     )
     col_1.caption("Ejemplo: TP53, BRCA1, EGFR. Representa genes con variantes o alteraciones simuladas.")
     transcriptomic = col_2.text_area(
         "Transcriptomica - genes sobreexpresados o subexpresados",
-        value=join_items(source.get("transcriptomic", [])),
+        value=join_items(transcriptomic_default),
         placeholder="IL6, TNF, MKI67",
     )
     col_2.caption("Ejemplo: IL6, TNF, MKI67. Representa cambios en expresion genica.")
@@ -510,24 +548,16 @@ with st.form("case_form"):
     col_3, col_4 = st.columns(2)
     proteomic = col_3.text_area(
         "Proteomica - proteinas aumentadas o disminuidas",
-        value=join_items(source.get("proteomic", [])),
+        value=join_items(proteomic_default),
         placeholder="CRP, CXCL8, LDHA",
     )
     col_3.caption("Ejemplo: CRP, CXCL8, LDHA. Representa proteinas alteradas en la muestra.")
     metabolomic = col_4.text_area(
         "Metabolomica - metabolitos alterados",
-        value=join_items(source.get("metabolomic", [])),
+        value=join_items(metabolomic_default),
         placeholder="Lactato, Glucosa, ATP",
     )
     col_4.caption("Ejemplo: Lactato, Glucosa, ATP. Representa metabolitos energeticos o de interes.")
-
-    step_title(3, "Resultados de laboratorio complementarios")
-    lab_results = st.text_area(
-        "Laboratorio clinico o experimental",
-        value=join_items(source.get("lab_results", [])),
-        placeholder="PCR elevada, VSG elevada, LDH elevada",
-    )
-    field_note("Ejemplo: PCR elevada, VSG elevada, LDH elevada. Estos datos aumentan el contexto, pero no generan diagnostico.")
 
     submitted = st.form_submit_button("Analizar caso simulado y generar reporte", type="primary")
 
@@ -589,8 +619,8 @@ if submitted or use_example:
     candidates_df = pd.DataFrame(analysis["candidates"])
     pathway_df = pd.DataFrame(analysis["altered_pathways"])
 
-    tab_summary, tab_markers, tab_visuals, tab_report = st.tabs(
-        ["Panorama del caso", "Biomarcadores", "Visualizaciones", "Reporte descargable"]
+    tab_summary, tab_recommendations, tab_markers, tab_visuals, tab_report = st.tabs(
+        ["Panorama del caso", "Panel recomendado", "Biomarcadores", "Visualizaciones", "Reporte descargable"]
     )
 
     with tab_summary:
@@ -621,6 +651,20 @@ if submitted or use_example:
             ]
         )
         st.dataframe(input_df, use_container_width=True, hide_index=True)
+
+    with tab_recommendations:
+        st.markdown('<div class="small-title">Marcadores sugeridos por BioNexus AI</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="callout">Este panel se genera con reglas academicas basadas en palabras clave del diagnostico presuntivo, sintomas y laboratorio. No equivale a una orden clinica ni a una guia diagnostica real.</div>',
+            unsafe_allow_html=True,
+        )
+        st.dataframe(recommendation_df, use_container_width=True, hide_index=True)
+
+        profile_text = ", ".join(marker_recommendations["matched_profiles"])
+        st.write(f"**Perfiles detectados:** {profile_text}")
+        st.write(
+            "La recomendacion busca orientar que marcadores podrian explorarse para discutir inflamacion, proliferacion, metabolismo, reparacion de ADN u otros procesos simulados."
+        )
 
     with tab_markers:
         st.markdown('<div class="small-title">Tabla de biomarcadores candidatos</div>', unsafe_allow_html=True)
