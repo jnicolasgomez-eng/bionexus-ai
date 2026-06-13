@@ -338,6 +338,47 @@ def executive_summary(summary: dict, analysis: dict) -> None:
     )
 
 
+def fallback_treatment_orientation(analysis: dict) -> list[str]:
+    """Genera orientacion academica si el motor de analisis aun no la trae."""
+
+    categories = {
+        row.get("Categoria", "").lower()
+        for row in analysis.get("candidates", [])
+        if row.get("Categoria") and row.get("Categoria") != "no clasificado"
+    }
+    suggestions = []
+
+    if "inflamacion" in categories:
+        suggestions.append(
+            "Correlacionar hallazgos inflamatorios con PCR, VSG, hemograma, cultivo u otros estudios segun criterio profesional."
+        )
+    if "ciclo celular" in categories:
+        suggestions.append(
+            "Considerar revision interdisciplinaria y validacion molecular si el caso simula proliferacion celular o proceso tumoral."
+        )
+    if "metabolismo" in categories:
+        suggestions.append(
+            "Explorar seguimiento metabolico con glucosa, lactato, perfil energetico u otras pruebas complementarias segun el contexto."
+        )
+    if "reparacion adn" in categories:
+        suggestions.append(
+            "Plantear validacion genomica y consejeria genetica en un escenario real antes de decisiones preventivas o terapeuticas."
+        )
+    if "estres celular" in categories:
+        suggestions.append(
+            "Correlacionar posible estres celular o hipoxia con datos clinicos, imagenologicos y de laboratorio."
+        )
+    if not suggestions:
+        suggestions.append(
+            "Ampliar datos clinicos, laboratorio y biomarcadores antes de proponer una orientacion terapeutica academica."
+        )
+
+    suggestions.append(
+        "Orientacion no prescriptiva: BioNexus AI no formula tratamientos, dosis ni conductas clinicas; organiza hipotesis para revision profesional."
+    )
+    return suggestions
+
+
 def build_network_figure(candidates: list[dict], pathways: list[dict]) -> go.Figure:
     """Dibuja una red sencilla entre biomarcadores candidatos y rutas."""
 
@@ -634,6 +675,8 @@ case = {
 
 if submitted or use_example:
     analysis = analyze_case(case)
+    if not analysis.get("treatment_orientation"):
+        analysis["treatment_orientation"] = fallback_treatment_orientation(analysis)
     summary = analysis["summary"]
 
     counts_df = pd.DataFrame(
@@ -770,8 +813,6 @@ if submitted or use_example:
     st.markdown('<div class="section-title">Posible orientacion terapeutica academica</div>', unsafe_allow_html=True)
     for item in analysis.get("treatment_orientation", []):
         st.write(f"- {item}")
-    if not analysis.get("treatment_orientation"):
-        st.write("- Orientacion no disponible. Actualiza el archivo modules/analyzer.py en GitHub.")
     st.warning(
         "Esta orientacion no prescribe tratamientos, dosis ni conductas clinicas. Debe ser revisada por profesionales competentes."
     )
