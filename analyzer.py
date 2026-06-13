@@ -76,6 +76,38 @@ RECOMMENDATION_RULES = [
             "metabolomic": ["Lactato"],
         },
         "reason": "El contexto contiene terminos asociados con inflamacion o respuesta inmune; estos marcadores permiten explorar senalizacion inflamatoria y fase aguda de forma simulada.",
+        "sample": "Suero, plasma o sangre total segun prueba.",
+        "technique": "ELISA, inmunoensayo, qPCR o panel molecular segun marcador.",
+        "limitations": "La inflamacion no define etiologia por si sola; requiere correlacion clinica y microbiologica.",
+        "false_results": "Falsos positivos por inflamacion no infecciosa; falsos negativos en fases tempranas o muestras inadecuadas.",
+        "validator": "Bacteriologo/laboratorista clinico y medico tratante.",
+    },
+    {
+        "profile": "Infeccioso",
+        "keywords": [
+            "infeccion",
+            "sepsis",
+            "fiebre",
+            "cultivo",
+            "bacteria",
+            "viral",
+            "pus",
+            "leucocitos",
+            "procalcitonina",
+            "antibiograma",
+        ],
+        "markers": {
+            "genomic": ["TNF"],
+            "transcriptomic": ["IL6", "CXCL8"],
+            "proteomic": ["CRP"],
+            "metabolomic": ["Lactato"],
+        },
+        "reason": "El contexto sugiere proceso infeccioso o respuesta sistemica; se priorizan marcadores inflamatorios y metabolicos de apoyo, no confirmatorios.",
+        "sample": "Sangre, suero, plasma, orina, hisopado o muestra del foco sospechoso.",
+        "technique": "Cultivo, antibiograma, PCR/qPCR, inmunoensayo o panel sindromico segun disponibilidad.",
+        "limitations": "Los biomarcadores no reemplazan cultivo, identificacion microbiologica ni antibiograma.",
+        "false_results": "Falsos positivos por inflamacion esteril; falsos negativos por antibiotico previo, baja carga microbiana o mala toma de muestra.",
+        "validator": "Bacteriologo, microbiologo clinico y medico tratante.",
     },
     {
         "profile": "Proliferacion / ciclo celular",
@@ -96,6 +128,11 @@ RECOMMENDATION_RULES = [
             "metabolomic": ["Lactato", "Glucosa"],
         },
         "reason": "El contexto sugiere una pregunta academica relacionada con crecimiento celular; estos marcadores ayudan a explorar ciclo celular, senales proliferativas y metabolismo asociado.",
+        "sample": "Tejido, sangre o muestra molecular segun sospecha y protocolo.",
+        "technique": "Inmunohistoquimica, qPCR, secuenciacion, citometria o panel molecular.",
+        "limitations": "No confirma malignidad sin histopatologia, correlacion clinica e interpretacion especializada.",
+        "false_results": "Sobreexpresion no especifica, heterogeneidad tumoral o baja calidad de muestra pueden alterar la interpretacion.",
+        "validator": "Patologia, genetica molecular, bacteriologo molecular y medico especialista.",
     },
     {
         "profile": "Metabolismo energetico",
@@ -116,6 +153,11 @@ RECOMMENDATION_RULES = [
             "metabolomic": ["Glucosa", "Lactato", "ATP", "Piruvato"],
         },
         "reason": "El contexto apunta a metabolismo o demanda energetica; este panel permite discutir glucolisis, transporte de glucosa y estres energetico.",
+        "sample": "Suero, plasma o sangre total segun analito.",
+        "technique": "Quimica clinica, espectrometria, inmunoensayo o metabolomica.",
+        "limitations": "Los metabolitos son sensibles a ayuno, transporte, tiempo de procesamiento y estado clinico.",
+        "false_results": "Hemolisis, retraso preanalitico, ejercicio o mala conservacion pueden modificar resultados.",
+        "validator": "Bacteriologo/laboratorista clinico, quimico clinico y medico tratante.",
     },
     {
         "profile": "Reparacion de ADN / riesgo genomico",
@@ -135,6 +177,61 @@ RECOMMENDATION_RULES = [
             "metabolomic": [],
         },
         "reason": "El contexto contiene elementos de pregunta genomica o antecedente familiar; estos marcadores sirven para ilustrar reparacion de ADN y control de dano genomico.",
+        "sample": "Sangre total, saliva o tejido segun estudio molecular.",
+        "technique": "Secuenciacion, qPCR, MLPA o panel genetico validado.",
+        "limitations": "Requiere consentimiento, consejeria genetica e interpretacion por variantes clasificadas.",
+        "false_results": "Variantes de significado incierto, contaminacion o cobertura insuficiente pueden limitar conclusiones.",
+        "validator": "Genetista, bioinformatico clinico y bacteriologo molecular.",
+    },
+    {
+        "profile": "Autoinmune",
+        "keywords": [
+            "autoinmune",
+            "ana",
+            "lupus",
+            "artritis",
+            "rash",
+            "dolor articular",
+            "anticuerpos",
+            "inflamacion cronica",
+        ],
+        "markers": {
+            "genomic": ["TNF"],
+            "transcriptomic": ["IL6", "TNF"],
+            "proteomic": ["CRP"],
+            "metabolomic": [],
+        },
+        "reason": "El contexto sugiere inflamacion persistente o autoinmunidad; se recomienda correlacionar marcadores inflamatorios con autoanticuerpos y clinica.",
+        "sample": "Suero o plasma.",
+        "technique": "Inmunoensayo, inmunofluorescencia, ELISA o panel autoinmune.",
+        "limitations": "Marcadores inflamatorios son inespecificos y no sustituyen criterios clinicos de enfermedad autoinmune.",
+        "false_results": "Autoanticuerpos pueden aparecer en poblacion sana; inmunosupresion puede disminuir senales.",
+        "validator": "Bacteriologo/laboratorista clinico, inmunologo y medico tratante.",
+    },
+    {
+        "profile": "Seguimiento terapeutico",
+        "keywords": [
+            "seguimiento",
+            "tratamiento",
+            "respuesta",
+            "terapeutico",
+            "control",
+            "evolucion",
+            "antibiotico",
+            "antimicrobiano",
+        ],
+        "markers": {
+            "genomic": [],
+            "transcriptomic": ["IL6"],
+            "proteomic": ["CRP", "LDHA"],
+            "metabolomic": ["Lactato"],
+        },
+        "reason": "El contexto indica seguimiento; se priorizan marcadores de tendencia para comparar contra resultados previos y respuesta clinica.",
+        "sample": "Misma matriz usada en el resultado basal para comparabilidad.",
+        "technique": "Metodo equivalente al basal, idealmente en el mismo laboratorio o plataforma validada.",
+        "limitations": "No interpretar cambios aislados sin tendencia temporal, clinica y tratamiento recibido.",
+        "false_results": "Cambios por preanalitica, variabilidad biologica o diferencia metodologica.",
+        "validator": "Bacteriologo/laboratorista clinico y medico tratante.",
     },
 ]
 
@@ -230,6 +327,15 @@ def recommend_marker_panel(case: Dict[str, object]) -> Dict[str, object]:
                         "Marcador recomendado": item.name if item else marker,
                         "Prioridad": priority,
                         "Por que se recomienda": rule["reason"],
+                        "Tipo de muestra recomendada": rule.get("sample", "Segun prueba y protocolo."),
+                        "Tecnica sugerida": rule.get("technique", "Metodo validado por el laboratorio."),
+                        "Limitaciones": rule.get("limitations", "Requiere correlacion clinica y validacion profesional."),
+                        "Posibles falsos positivos/falsos negativos": rule.get(
+                            "false_results", "Dependen de la muestra, metodo y contexto clinico."
+                        ),
+                        "Profesional que debe validar": rule.get(
+                            "validator", "Bacteriologo/laboratorista clinico y medico tratante."
+                        ),
                     }
                 )
 
@@ -308,6 +414,58 @@ def risk_level(candidate_count: int, pathway_count: int, lab_alerts: int) -> str
     return "Bajo"
 
 
+def treatment_orientation(category_counts: Dict[str, int]) -> List[str]:
+    """Sugiere lineas academicas de discusion terapeutica no prescriptiva."""
+
+    suggestions = []
+    if category_counts.get("inflamacion", 0) >= 2:
+        suggestions.append(
+            "Discutir evaluacion clinica de foco inflamatorio/infeccioso, correlacion con PCR/VSG y pertinencia de estudios inmunologicos o microbiologicos complementarios."
+        )
+    if category_counts.get("ciclo celular", 0) >= 2:
+        suggestions.append(
+            "Considerar discusion interdisciplinaria con patologia, oncologia o genetica molecular si el contexto academico simula proliferacion celular; no iniciar decisiones terapeuticas sin confirmacion diagnostica."
+        )
+    if category_counts.get("metabolismo", 0) >= 2:
+        suggestions.append(
+            "Explorar control metabolico, estado energetico celular y pruebas complementarias como glucosa, lactato, perfil metabolico o estudios funcionales segun criterio profesional."
+        )
+    if category_counts.get("reparacion ADN", 0) >= 1:
+        suggestions.append(
+            "Plantear consejeria genetica o validacion molecular confirmatoria en un escenario real antes de cualquier decision preventiva o terapeutica."
+        )
+    if category_counts.get("estres celular", 0) >= 1:
+        suggestions.append(
+            "Correlacionar posible hipoxia o estres celular con hallazgos clinicos, imagenologicos o de laboratorio antes de proponer intervenciones."
+        )
+    if not suggestions:
+        suggestions.append(
+            "No se propone una linea terapeutica especifica; se recomienda ampliar datos, validar biomarcadores y revisar el caso con profesionales competentes."
+        )
+    suggestions.append(
+        "Orientacion no prescriptiva: BioNexus AI no selecciona antibioticos, dosis ni conductas clinicas. Para antimicrobianos se requiere foco infeccioso, cultivo/antibiograma cuando aplique, alergias, funcion renal/hepatica, guias institucionales y validacion medica."
+    )
+    return suggestions
+
+
+def alert_level(case: Dict[str, object], risk: str) -> str:
+    """Asigna alerta operacional para priorizacion del informe."""
+
+    quality = str(case.get("sample_quality", "")).lower()
+    status = str(case.get("result_status", "")).lower()
+    lab_text = " ".join(case.get("lab_results", [])).lower()
+
+    if "critico" in status or "crítico" in status or "sepsis" in lab_text or "lactato elevado" in lab_text:
+        return "Critico: contactar profesional responsable"
+    if quality in {"hemolizada", "lipemica", "lipémica", "insuficiente"}:
+        return "Alto: requiere revision prioritaria por calidad de muestra"
+    if risk == "Alto":
+        return "Alto: requiere revision prioritaria"
+    if risk == "Moderado":
+        return "Moderado: requiere correlacion clinica"
+    return "Bajo: seguimiento rutinario"
+
+
 def analyze_case(case: Dict[str, object]) -> Dict[str, object]:
     """Integra los datos y devuelve un reporte estructurado."""
 
@@ -351,6 +509,7 @@ def analyze_case(case: Dict[str, object]) -> Dict[str, object]:
     known_count = len(known_candidates)
     confidence = confidence_level(known_count, pathway_count)
     risk = risk_level(known_count, pathway_count, lab_alerts)
+    alert = alert_level(case, risk)
 
     dominant_category = max(category_counts, key=category_counts.get) if category_counts else None
     molecular_class = (
@@ -375,11 +534,17 @@ def analyze_case(case: Dict[str, object]) -> Dict[str, object]:
             "risk": risk,
             "confidence": confidence,
             "molecular_class": molecular_class,
+            "alert": alert,
         },
         "omics_counts": {data_type: len(markers) for data_type, markers in omics_data.items()},
         "candidates": candidates,
         "altered_pathways": altered_pathways,
         "interpretations": interpretations,
+        "diagnostic_hypothesis": [
+            f"Hipotesis compatible con {molecular_class.lower()} segun biomarcadores candidatos y datos ingresados.",
+            "Debe correlacionarse con historia clinica, examen fisico, criterios diagnosticos y pruebas confirmatorias.",
+        ],
+        "treatment_orientation": treatment_orientation(category_counts),
         "recommendations": recommendations,
         "limitations": [
             "El analisis es simulado y basado en reglas simples.",
